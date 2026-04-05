@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Environment variables — contains bot token and secret IDs
+.env
+
+# Runtime config with operational Discord IDs (channel/message IDs)
+georgian-servers.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
