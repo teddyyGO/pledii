@@ -45,7 +45,11 @@ async function buildEmbed() {
         const name = (s.name || '').toLowerCase();
         return name.includes('georgia') || name.includes('საქართველო');
       })
-      .map(([addr, s]) => ({ addr, ...s }))
+      .map(([addr, s]) => ({
+        addr,
+        ...s,
+        api_peak: s.peak ?? s.peakPlayers ?? s.peak_players ?? null
+      }))
       .sort((a, b) => (b.players ?? 0) - (a.players ?? 0));
 
     cache = { data: servers, timestamp: Date.now() };

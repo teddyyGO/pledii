@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, ChannelType } = require('discord.js');
+const { SlashCommandBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
 const { buildEmbed: buildRagemp } = require('./ragemp');
@@ -77,7 +77,13 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true });
 
     const game = interaction.options.getString('game') ?? 'both';
-    const targetChannel = interaction.options.getChannel('channel') ?? interaction.channel;
+    const targetChannel = interaction.options.getChannel('channel')
+      ?? await interaction.client.channels.fetch(interaction.channelId).catch(() => null);
+
+    if (!targetChannel) {
+      return interaction.editReply('❌ Could not resolve the channel. Please specify one using the `channel` option.');
+    }
+
     const games = game === 'both' ? ['ragemp', 'redm'] : [game];
 
     const config = loadConfig();
