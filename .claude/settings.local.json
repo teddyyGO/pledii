@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(ls d:/Desktop/pledii/*.json d:/Desktop/pledii/.env* d:/Desktop/pledii/package*)"
-    ]
-  }
-}
