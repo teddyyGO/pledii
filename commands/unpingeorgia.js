@@ -4,10 +4,37 @@ const fs = require('fs');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'georgian-servers.json');
 
+async function unpinGame(game, config, client) {
+  const pinned = config.pinned?.[game] ?? {};
+  if (!pinned.channelId || !pinned.messageId) return false;
+
+  try {
+    const channel = await client.channels.fetch(pinned.channelId);
+    const msg = await channel.messages.fetch(pinned.messageId);
+    await msg.delete();
+  } catch {
+    // Already gone — still clear config
+  }
+
+  config.pinned[game] = {};
+  return true;
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('unpingeorgia')
-    .setDescription('Delete the pinned Georgian server messages and stop auto-updates'),
+    .setDescription('Delete pinned Georgian server messages and stop auto-updates')
+    .addStringOption(option =>
+      option
+        .setName('game')
+        .setDescription('Which game to unpin (default: both)')
+        .setRequired(false)
+        .addChoices(
+          { name: 'Both', value: 'both' },
+          { name: 'RageMP', value: 'ragemp' },
+          { name: 'RedM', value: 'redm' }
+        )
+    ),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
@@ -19,31 +46,18 @@ module.exports = {
       return interaction.editReply('Could not read config.');
     }
 
-    const pinned = config.pinned ?? {};
+    const game = interaction.options.getString('game') ?? 'both';
+    const games = game === 'both' ? ['ragemp', 'redm'] : [game];
 
-    if (!pinned.channelId) {
-      await interaction.editReply('No pinned messages found.');
-      setTimeout(() => interaction.deleteReply().catch(() => {}), 10_000);
-      return;
+    const results = [];
+    for (const g of games) {
+      const removed = await unpinGame(g, config, interaction.client);
+      results.push(removed ? `🗑️ **${g.toUpperCase()}**: removed` : `ℹ️ **${g.toUpperCase()}**: not pinned`);
     }
 
-    // Try to delete the messages
-    try {
-      const channel = await interaction.client.channels.fetch(pinned.channelId);
-      const [ragempMsg, redmMsg] = await Promise.all([
-        channel.messages.fetch(pinned.ragempMessageId),
-        channel.messages.fetch(pinned.redmMessageId)
-      ]);
-      await ragempMsg.delete();
-      await redmMsg.delete();
-    } catch {
-      // Messages already gone, still clear the config
-    }
-
-    config.pinned = {};
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
 
-    await interaction.editReply('🗑️ Pinned messages removed.');
+    await interaction.editReply(results.join('\n'));
     setTimeout(() => interaction.deleteReply().catch(() => {}), 10_000);
   }
 };

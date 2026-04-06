@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, ApplicationIntegrationType, InteractionContextType } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
+const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h } = require('../stats');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'georgian-servers.json');
 
@@ -20,6 +21,10 @@ function loadManualList() {
   } catch {
     return [];
   }
+}
+
+function clearCache() {
+  cache = { data: null, timestamp: 0 };
 }
 
 async function buildEmbed() {
@@ -46,6 +51,9 @@ async function buildEmbed() {
     cache = { data: servers, timestamp: Date.now() };
   }
 
+  const totalPlayers = servers.reduce((sum, s) => sum + (s.players ?? 0), 0);
+  recordSnapshot('ragemp', servers, totalPlayers);
+
   const embed = new EmbedBuilder()
     .setTitle('🇬🇪 ქართული RageMP სერვერები')
     .setColor(0x8B0000)
@@ -56,7 +64,6 @@ async function buildEmbed() {
     return embed;
   }
 
-  const totalPlayers = servers.reduce((sum, s) => sum + (s.players ?? 0), 0);
   const online = servers.filter(s => (s.players ?? 0) > 0).length;
 
   const lines = servers.slice(0, 25).map((s, i) => {
@@ -68,8 +75,17 @@ async function buildEmbed() {
   });
 
   const ts = Math.floor(Date.now() / 1000);
-  embed
-    .setDescription(`👥 **${totalPlayers} მოთამაშე ონლაინ** ${online} სერვერზე\n\n${lines.join('\n')}\n\n-# განახლდა <t:${ts}:R>`)
+  embed.setDescription(`👥 **${totalPlayers} მოთამაშე ონლაინ** ${online} სერვერზე\n\n${lines.join('\n')}\n\n-# განახლდა <t:${ts}:R>`);
+
+  const sparkline = generateSparkline(getTotalHistory('ragemp'));
+  const peak = getPeak24h('ragemp');
+
+  if (sparkline || peak) {
+    const parts = [];
+    if (sparkline) parts.push(`\`${sparkline}\``);
+    if (peak) parts.push(`პიკი: **${peak.p}** <t:${peak.t}:t>`);
+    embed.addFields([{ name: '📊 24h', value: parts.join('  '), inline: false }]);
+  }
 
   return embed;
 }
@@ -82,6 +98,7 @@ module.exports = {
     .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM, InteractionContextType.PrivateChannel),
 
   buildEmbed,
+  clearCache,
 
   async execute(interaction) {
     await interaction.deferReply();

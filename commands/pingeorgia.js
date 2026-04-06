@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, ChannelType } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
 const { buildEmbed: buildRagemp } = require('./ragemp');
@@ -6,62 +6,100 @@ const { buildEmbed: buildRedm } = require('./redm');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'georgian-servers.json');
 
-function loadPinned() {
+function loadConfig() {
   try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')).pinned ?? {};
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   } catch {
     return {};
   }
 }
 
-function savePinned(data) {
-  const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-  config.pinned = data;
+function saveConfig(config) {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+}
+
+async function pinGame(game, channel, config) {
+  const existing = config.pinned?.[game] ?? {};
+  const buildEmbed = game === 'ragemp' ? buildRagemp : buildRedm;
+
+  // Same channel — try to update existing message
+  if (existing.channelId === channel.id && existing.messageId) {
+    try {
+      const msg = await channel.messages.fetch(existing.messageId);
+      const embed = await buildEmbed();
+      await msg.edit({ embeds: [embed] });
+      return { updated: true, messageId: existing.messageId };
+    } catch {
+      // Message gone — fall through to create new one
+    }
+  }
+
+  // Different channel — delete old message if it exists
+  if (existing.channelId && existing.messageId && existing.channelId !== channel.id) {
+    try {
+      const oldChannel = await channel.client.channels.fetch(existing.channelId);
+      const oldMsg = await oldChannel.messages.fetch(existing.messageId);
+      await oldMsg.delete();
+    } catch {
+      // Already gone, fine
+    }
+  }
+
+  const embed = await buildEmbed();
+  const msg = await channel.send({ embeds: [embed] });
+  return { updated: false, messageId: msg.id };
 }
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('pingeorgia')
-    .setDescription('Pin live Georgian server stats in this channel (auto-updates)'),
+    .setDescription('Pin live Georgian server stats in a channel (auto-updates every minute)')
+    .addStringOption(option =>
+      option
+        .setName('game')
+        .setDescription('Which game to pin (default: both)')
+        .setRequired(false)
+        .addChoices(
+          { name: 'Both', value: 'both' },
+          { name: 'RageMP', value: 'ragemp' },
+          { name: 'RedM', value: 'redm' }
+        )
+    )
+    .addChannelOption(option =>
+      option
+        .setName('channel')
+        .setDescription('Channel to pin in (default: current channel)')
+        .setRequired(false)
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+    ),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const pinned = loadPinned();
-    const sameChannel = pinned.channelId === interaction.channel.id;
+    const game = interaction.options.getString('game') ?? 'both';
+    const targetChannel = interaction.options.getChannel('channel') ?? interaction.channel;
+    const games = game === 'both' ? ['ragemp', 'redm'] : [game];
 
-    // Update existing messages only if we're in the same channel
-    if (sameChannel && pinned.ragempMessageId && pinned.redmMessageId) {
+    const config = loadConfig();
+    if (!config.pinned) config.pinned = {};
+
+    const results = [];
+
+    for (const g of games) {
       try {
-        const channel = await interaction.client.channels.fetch(pinned.channelId);
-        const ragempMsg = await channel.messages.fetch(pinned.ragempMessageId);
-        const redmMsg = await channel.messages.fetch(pinned.redmMessageId);
-
-        const [ragempEmbed, redmEmbed] = await Promise.all([buildRagemp(), buildRedm()]);
-        await ragempMsg.edit({ embeds: [ragempEmbed] });
-        await redmMsg.edit({ embeds: [redmEmbed] });
-
-        await interaction.editReply('✅ Pinned messages updated.');
-        setTimeout(() => interaction.deleteReply().catch(() => {}), 10_000);
-        return;
-      } catch {
-        // Messages gone — fall through to create new ones
+        const result = await pinGame(g, targetChannel, config);
+        config.pinned[g] = { channelId: targetChannel.id, messageId: result.messageId };
+        const status = result.updated ? 'updated' : `pinned in ${targetChannel}`;
+        results.push(`✅ **${g.toUpperCase()}**: ${status}`);
+      } catch (err) {
+        console.error(`[/pingeorgia] Failed for ${g}:`, err);
+        results.push(`❌ **${g.toUpperCase()}**: failed — ${err.message}`);
       }
     }
 
-    // Create new pinned messages in the current channel
-    const [ragempEmbed, redmEmbed] = await Promise.all([buildRagemp(), buildRedm()]);
-    const ragempMsg = await interaction.channel.send({ embeds: [ragempEmbed] });
-    const redmMsg = await interaction.channel.send({ embeds: [redmEmbed] });
+    saveConfig(config);
 
-    savePinned({
-      channelId: interaction.channel.id,
-      ragempMessageId: ragempMsg.id,
-      redmMessageId: redmMsg.id
-    });
-
-    await interaction.editReply('✅ Messages pinned! They will update automatically every minute.');
-    setTimeout(() => interaction.deleteReply().catch(() => {}), 10_000);
+    await interaction.editReply(results.join('\n') + '\n\nMessages will auto-update every minute.');
+    setTimeout(() => interaction.deleteReply().catch(() => {}), 15_000);
   }
 };

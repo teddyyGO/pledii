@@ -18,6 +18,11 @@ if (!clientId) {
   process.exit(1);
 }
 
+if (!guildId) {
+  console.error('❌ GUILD_ID is missing in .env');
+  process.exit(1);
+}
+
 
 const commands = [];
 const commandsPath = path.join(__dirname, 'commands');
@@ -52,7 +57,7 @@ const rest = new REST({ version: '10' }).setToken(token);
     console.log('\nRegistering slash commands...');
 
     const data = await rest.put(
-      Routes.applicationCommands(clientId),
+      Routes.applicationGuildCommands(clientId, guildId),
       { body: commands }
     );
 

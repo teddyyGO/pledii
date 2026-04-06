@@ -7,32 +7,32 @@ const CONFIG_PATH = path.join(__dirname, 'georgian-servers.json');
 const UPDATE_INTERVAL = 60 * 1000;
 
 async function updatePinnedMessages(client) {
-  let pinned;
+  let config;
   try {
-    pinned = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')).pinned ?? {};
+    config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   } catch {
     return;
   }
 
-  if (!pinned.channelId || !pinned.ragempMessageId || !pinned.redmMessageId) return;
+  const pinned = config.pinned ?? {};
+  const games = [
+    { key: 'ragemp', buildEmbed: () => require('./commands/ragemp').buildEmbed() },
+    { key: 'redm',   buildEmbed: () => require('./commands/redm').buildEmbed()   }
+  ];
 
-  try {
-    const { buildEmbed: buildRagemp } = require('./commands/ragemp');
-    const { buildEmbed: buildRedm } = require('./commands/redm');
+  for (const { key, buildEmbed } of games) {
+    const p = pinned[key] ?? {};
+    if (!p.channelId || !p.messageId) continue;
 
-    const channel = await client.channels.fetch(pinned.channelId);
-    const [ragempMsg, redmMsg] = await Promise.all([
-      channel.messages.fetch(pinned.ragempMessageId),
-      channel.messages.fetch(pinned.redmMessageId)
-    ]);
-
-    const [ragempEmbed, redmEmbed] = await Promise.all([buildRagemp(), buildRedm()]);
-    await ragempMsg.edit({ embeds: [ragempEmbed] });
-    await redmMsg.edit({ embeds: [redmEmbed] });
-
-    console.log('[pingeorgia] Pinned messages updated');
-  } catch (err) {
-    console.error('[pingeorgia] Failed to update pinned messages:', err.message);
+    try {
+      const channel = await client.channels.fetch(p.channelId);
+      const msg = await channel.messages.fetch(p.messageId);
+      const embed = await buildEmbed();
+      await msg.edit({ embeds: [embed] });
+      console.log(`[pingeorgia] Updated ${key} pinned message`);
+    } catch (err) {
+      console.error(`[pingeorgia] Failed to update ${key}:`, err.message);
+    }
   }
 }
 
@@ -70,6 +70,9 @@ for (const file of commandFiles) {
 client.once(Events.ClientReady, async readyClient => {
   console.log(`✅ Logged in as ${readyClient.user.tag}`);
 
+  // Expose updater on client so /refresh can call it without circular imports
+  readyClient.updatePinnedMessages = () => updatePinnedMessages(readyClient);
+
   await updatePinnedMessages(readyClient);
   setInterval(() => updatePinnedMessages(readyClient), UPDATE_INTERVAL);
 });
@@ -98,7 +101,6 @@ client.on(Events.InteractionCreate, async interaction => {
     }
   }
 });
-
 
 process.on('unhandledRejection', error => {
   console.error('[UNHANDLED REJECTION]', error);

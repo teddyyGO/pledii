@@ -7,9 +7,15 @@ node_modules/
 # Runtime config with operational Discord IDs (channel/message IDs)
 georgian-servers.json
 
+# Historical player count data
+stats.json
+
 # Logs
 *.log
 npm-debug.log*
+
+# Claude Code
+.claude/
 
 # OS files
 .DS_Store
