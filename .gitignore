@@ -5,9 +5,6 @@ node_modules/
 .env
 
 
-# Historical player count data
-stats.json
-
 # Logs
 *.log
 npm-debug.log*
