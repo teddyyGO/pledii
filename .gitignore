@@ -12,6 +12,9 @@ npm-debug.log*
 # Claude Code
 .claude/
 
+# NSSM service manager binary
+nssm.exe
+
 # OS files
 .DS_Store
 Thumbs.db
