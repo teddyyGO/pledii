@@ -3,6 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const { buildEmbed: buildRagemp } = require('./ragemp');
 const { buildEmbed: buildRedm } = require('./redm');
+const { buildEmbed: buildSamp } = require('./samp');
+const { buildEmbed: buildTotal } = require('./total');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'georgian-servers.json');
 
@@ -20,7 +22,8 @@ function saveConfig(config) {
 
 async function pinGame(game, channel, config) {
   const existing = config.pinned?.[game] ?? {};
-  const buildEmbed = game === 'ragemp' ? buildRagemp : buildRedm;
+  const builders = { ragemp: buildRagemp, redm: buildRedm, samp: buildSamp, total: buildTotal };
+  const buildEmbed = builders[game];
 
   // Same channel — try to update existing message
   if (existing.channelId === channel.id && existing.messageId) {
@@ -60,9 +63,11 @@ module.exports = {
         .setDescription('Which game to pin (default: both)')
         .setRequired(false)
         .addChoices(
-          { name: 'Both', value: 'both' },
+          { name: 'All', value: 'both' },
           { name: 'RageMP', value: 'ragemp' },
-          { name: 'RedM', value: 'redm' }
+          { name: 'RedM', value: 'redm' },
+          { name: 'SA-MP', value: 'samp' },
+          { name: 'Total (all platforms)', value: 'total' }
         )
     )
     .addChannelOption(option =>
@@ -84,7 +89,7 @@ module.exports = {
       return interaction.editReply('❌ Could not resolve the channel. Please specify one using the `channel` option.');
     }
 
-    const games = game === 'both' ? ['ragemp', 'redm'] : [game];
+    const games = game === 'both' ? ['ragemp', 'redm', 'samp', 'total'] : [game];
 
     const config = loadConfig();
     if (!config.pinned) config.pinned = {};

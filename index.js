@@ -17,7 +17,9 @@ async function updatePinnedMessages(client) {
   const pinned = config.pinned ?? {};
   const games = [
     { key: 'ragemp', buildEmbed: () => require('./commands/ragemp').buildEmbed() },
-    { key: 'redm',   buildEmbed: () => require('./commands/redm').buildEmbed()   }
+    { key: 'redm',   buildEmbed: () => require('./commands/redm').buildEmbed()   },
+    { key: 'samp',   buildEmbed: () => require('./commands/samp').buildEmbed()   },
+    { key: 'total',  buildEmbed: () => require('./commands/total').buildEmbed()  }
   ];
 
   for (const { key, buildEmbed } of games) {

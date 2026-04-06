@@ -189,8 +189,15 @@ function generateSparkline(history, points = 24) {
   return recent.map(e => BLOCKS[Math.min(7, Math.floor((e.p / max) * 8))]).join('');
 }
 
+/** Returns the most recent snapshot for a game, or null. */
+function getLatestSnapshot(game) {
+  const all = loadStats().snapshots.filter(s => s.game === game);
+  return all.length > 0 ? all[all.length - 1] : null;
+}
+
 module.exports = {
   recordSnapshot,
+  getLatestSnapshot,
   getTotalHistory,
   getKnownServers,
   getServerHistory,

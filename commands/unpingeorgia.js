@@ -30,9 +30,11 @@ module.exports = {
         .setDescription('Which game to unpin (default: both)')
         .setRequired(false)
         .addChoices(
-          { name: 'Both', value: 'both' },
+          { name: 'All', value: 'both' },
           { name: 'RageMP', value: 'ragemp' },
-          { name: 'RedM', value: 'redm' }
+          { name: 'RedM', value: 'redm' },
+          { name: 'SA-MP', value: 'samp' },
+          { name: 'Total (all platforms)', value: 'total' }
         )
     ),
 
@@ -47,7 +49,7 @@ module.exports = {
     }
 
     const game = interaction.options.getString('game') ?? 'both';
-    const games = game === 'both' ? ['ragemp', 'redm'] : [game];
+    const games = game === 'both' ? ['ragemp', 'redm', 'samp', 'total'] : [game];
 
     const results = [];
     for (const g of games) {
