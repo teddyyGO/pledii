@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, ApplicationIntegrationType, InteractionContextType } = require('discord.js');
 const dgram = require('dgram');
-const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h, getPeakToday } = require('../stats');
+const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h, getPeakToday, getAllServerPeaksToday } = require('../stats');
 
 const SERVER_HOST = '185.169.134.100';
 const SERVER_PORT = 7777;
@@ -93,10 +93,13 @@ async function buildEmbed() {
     .setColor(0x8B0000)
     .setTimestamp();
 
-  const dot = data.players === 0 ? '⬛' : '🟩';
+  const dot = data.players === 0 ? '⚫' : '🟢';
   const ts = Math.floor(Date.now() / 1000);
+  const serverPeaks = getAllServerPeaksToday('samp');
+  const serverPeak = serverPeaks.get(`${SERVER_HOST}:${SERVER_PORT}`) || 0;
+  const peakStr = serverPeak > 0 ? ` (პიკი: ${serverPeak})` : '';
 
-  embed.setDescription(`👥 **${data.players} მოთამაშე ონლაინ**\n\n\` 1\` ${dot} **${data.hostname}** — ${data.players}/${data.maxplayers}\n\n-# განახლდა <t:${ts}:R>`);
+  embed.setDescription(`👥 **${data.players} მოთამაშე ონლაინ**\n\n\` 1\` ${dot} **${data.hostname}** — ${data.players}/${data.maxplayers}${peakStr}\n\n-# განახლდა <t:${ts}:R>`);
 
   const sparkline = generateSparkline(getTotalHistory('samp'));
   const peak = getPeak24h('samp');

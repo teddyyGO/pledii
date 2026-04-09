@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, ApplicationIntegrationType, InteractionContextType } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
-const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h, getPeakToday } = require('../stats');
+const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h, getPeakToday, getAllServerPeaksToday, stripLeadingEmoji } = require('../stats');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'georgian-servers.json');
 const BANNER = 'https://media.discordapp.net/attachments/900441540156067920/1491598397428334592/Gemini_Generated_Image_c0j6elc0j6elc0j6.png?ex=69d846c2&is=69d6f542&hm=4c7e158ff1105a744dced673c222fabaf9f1f62929304b79d23672c6b88ebc4e&=&format=webp&quality=lossless&width=924&height=230';
@@ -10,10 +10,9 @@ let cache = { data: null, timestamp: 0 };
 const CACHE_TTL = 30_000;
 
 function cleanName(name) {
-  return name
-    .replace(/\[.*?\]/g, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
+  return stripLeadingEmoji(
+    name.replace(/\[.*?\]/g, '').replace(/\s{2,}/g, ' ').trim()
+  );
 }
 
 function loadManualList() {
@@ -71,13 +70,16 @@ async function buildEmbed() {
   }
 
   const online = servers.filter(s => (s.players ?? 0) > 0).length;
+  const serverPeaks = getAllServerPeaksToday('ragemp');
 
   const lines = servers.slice(0, 25).map((s, i) => {
     const rank = `\`${String(i + 1).padStart(2, ' ')}\``;
-    const dot = (s.players ?? 0) === 0 ? '⬛' : '🟩';
+    const dot = (s.players ?? 0) === 0 ? '⚫' : '🟢';
     const name = cleanName(s.name || s.addr);
     const display = name.length > 28 ? name.slice(0, 27) + '…' : name;
-    return `${rank} ${dot} **${display}** — ${s.players ?? 0}/${s.maxplayers ?? '?'}`;
+    const peak = serverPeaks.get(s.addr) || 0;
+    const peakStr = peak > 0 ? ` (პიკი: ${peak})` : '';
+    return `${rank} ${dot} **${display}** — ${s.players ?? 0}/${s.maxplayers ?? '?'}${peakStr}`;
   });
 
   const ts = Math.floor(Date.now() / 1000);

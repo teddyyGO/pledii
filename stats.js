@@ -7,7 +7,7 @@ const MAX_AGE_SECONDS = 7 * 86400;      // keep 7 days
 const RECORD_INTERVAL = 60 * 1000;      // record every minute
 const BLOCKS = '▁▂▃▄▅▆▇█';
 
-const lastRecorded = { ragemp: 0, redm: 0, samp: 0 };
+const lastRecorded = { ragemp: 0, redm: 0, samp: 0, total: 0 };
 
 // Schema — maps directly to DB tables when migrating:
 //
@@ -199,6 +199,52 @@ function getPeakToday(game) {
   return history.reduce((max, e) => (e.p > max.p ? e : max), history[0]);
 }
 
+/** Peak of all servers for a game today, keyed by server_id. */
+function getAllServerPeaksToday(game) {
+  const now = Date.now();
+  const GEORGIAN_OFFSET = 4 * 3600 * 1000;
+  const georgianNow = new Date(now + GEORGIAN_OFFSET);
+  const midnightGeorgian = Date.UTC(
+    georgianNow.getUTCFullYear(),
+    georgianNow.getUTCMonth(),
+    georgianNow.getUTCDate()
+  );
+  const cutoff = Math.floor((midnightGeorgian - GEORGIAN_OFFSET) / 1000);
+
+  const snaps = loadStats().snapshots.filter(s => s.game === game && s.timestamp >= cutoff);
+  const peaks = new Map();
+  for (const snap of snaps) {
+    for (const srv of (snap.servers || [])) {
+      const current = peaks.get(srv.server_id) || 0;
+      if (srv.players > current) peaks.set(srv.server_id, srv.players);
+    }
+  }
+  return peaks;
+}
+
+/** Peak total players for the last 7 days. */
+function getPeak7d(game) {
+  const history = getTotalHistory(game, 168);
+  if (history.length === 0) return null;
+  return history.reduce((max, e) => (e.p > max.p ? e : max), history[0]);
+}
+
+/** Record a combined snapshot summing all platform totals. */
+function recordCombinedSnapshot() {
+  const games = ['ragemp', 'redm', 'samp'];
+  let combinedTotal = 0;
+  for (const game of games) {
+    const snap = getLatestSnapshot(game);
+    if (snap) combinedTotal += snap.total_players;
+  }
+  recordSnapshot('total', [], combinedTotal);
+}
+
+/** Strip leading emoji characters from a string. */
+function stripLeadingEmoji(str) {
+  return str.replace(/^(?:[\p{Extended_Pictographic}\p{Emoji_Presentation}]|\p{Regional_Indicator}{2}|[\u{FE0F}\u{FE0E}\u{200D}\u{20E3}])+\s*/u, '').trim() || str;
+}
+
 /** Daily summary for /summary overview. */
 function getDailySummary(game) {
   return getGameSummary(game, 24);
@@ -230,5 +276,9 @@ module.exports = {
   generateSparkline,
   getPeak24h,
   getPeakToday,
+  getPeak7d,
+  getAllServerPeaksToday,
+  recordCombinedSnapshot,
+  stripLeadingEmoji,
   getDailySummary
 };

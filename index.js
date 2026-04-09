@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { Client, GatewayIntentBits, Events, Collection } = require('discord.js');
 const db = require('./db');
+const stats = require('./stats');
 const { startAdmin } = require('./admin');
 require('dotenv').config();
 
@@ -25,6 +26,9 @@ async function updatePinnedMessages(client) {
   ];
 
   for (const { key, buildEmbed } of games) {
+    // Record combined total snapshot before building the total embed
+    if (key === 'total') stats.recordCombinedSnapshot();
+
     const p = pinned[key] ?? {};
     if (!p.channelId || !p.messageId) continue;
 

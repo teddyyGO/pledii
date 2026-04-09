@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, ApplicationIntegrationType, InteractionContextType } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
-const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h, getPeakToday } = require('../stats');
+const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h, getPeakToday, getAllServerPeaksToday, stripLeadingEmoji } = require('../stats');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'georgian-servers.json');
 const BANNER = 'https://media.discordapp.net/attachments/927693311039402025/1490002133687468114/image.png';
@@ -114,13 +114,16 @@ async function buildEmbed() {
   }
 
   const online = servers.filter(s => s.clients > 0).length;
+  const serverPeaks = getAllServerPeaksToday('redm');
 
   const lines = servers.slice(0, 25).map((s, i) => {
     const rank = `\`${String(i + 1).padStart(2, ' ')}\``;
-    const dot = s.clients === 0 ? '⬛' : '🟩';
-    const name = s.hostname || s.endpoint;
+    const dot = s.clients === 0 ? '⚫' : '🟢';
+    const name = stripLeadingEmoji(s.hostname || s.endpoint);
     const display = name.length > 28 ? name.slice(0, 27) + '…' : name;
-    return `${rank} ${dot} **${display}** — ${s.clients}/${s.maxclients}`;
+    const peak = serverPeaks.get(s.endpoint) || 0;
+    const peakStr = peak > 0 ? ` (პიკი: ${peak})` : '';
+    return `${rank} ${dot} **${display}** — ${s.clients}/${s.maxclients}${peakStr}`;
   });
 
   const ts = Math.floor(Date.now() / 1000);
