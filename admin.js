@@ -153,6 +153,16 @@ app.get('/', (req, res) => {
   .back-link { color: #58a6ff; font-size: 13px; cursor: pointer; margin-bottom: 12px; display: inline-block; }
   .back-link:hover { text-decoration: underline; }
 
+  /* Search */
+  .search-box { width: 100%; background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; padding: 10px 14px; border-radius: 8px; font-size: 14px; outline: none; margin-bottom: 12px; }
+  .search-box:focus { border-color: #58a6ff; }
+
+  /* Timeframe toggle */
+  .tf-toggle { display: flex; gap: 0; background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; display: inline-flex; margin-bottom: 12px; }
+  .tf-btn { padding: 6px 16px; font-size: 13px; color: #8b949e; cursor: pointer; border: none; background: transparent; transition: all 0.15s; }
+  .tf-btn:hover { color: #c9d1d9; }
+  .tf-btn.active { background: #30363d; color: #f0f6fc; font-weight: 600; }
+
   /* SVG Chart */
   .chart-container { position: relative; width: 100%; }
   .chart-container svg { width: 100%; display: block; }
@@ -398,57 +408,113 @@ async function loadSnapshot(id) {
 }
 
 // ── Servers List ──
+var cachedServers = null;
 async function loadServers() {
   var servers = await api('/servers');
   if (!servers) servers = [];
+  cachedServers = servers;
 
   var html = '<h2>All Known Servers (' + servers.length + ')</h2>';
-  html += '<div class="card scroll-table"><table>';
+  html += '<input class="search-box" id="server-search" type="text" placeholder="Search servers by name or ID..." oninput="filterServers()">';
+  html += '<div id="server-list"></div>';
+  document.getElementById('content').innerHTML = html;
+  filterServers();
+}
+
+function filterServers() {
+  var servers = cachedServers || [];
+  var q = (document.getElementById('server-search')?.value || '').toLowerCase();
+  var filtered = q ? servers.filter(function(s) {
+    return (s.name || '').toLowerCase().includes(q) || (s.server_id || '').toLowerCase().includes(q) || (s.game || '').toLowerCase().includes(q);
+  }) : servers;
+
+  var html = '<div class="card scroll-table"><table>';
   html += '<tr><th>Game</th><th>Server</th><th class="num">Players</th><th>Last Seen</th><th></th></tr>';
-  for (var i = 0; i < servers.length; i++) {
-    var s = servers[i];
+  for (var i = 0; i < filtered.length; i++) {
+    var s = filtered[i];
     var sid = esc(s.server_id);
     html += '<tr><td>' + badge(s.game) + '</td><td><strong>' + esc(s.name) + '</strong><br><span style="font-size:11px;color:#484f58">' + sid + '</span></td><td class="num"><strong>' + s.players + '</strong></td><td>' + timeAgo(s.last_seen) + '</td>';
     html += '<td><a class="clickable" data-game="' + s.game + '" data-sid="' + sid + '" onclick="loadServerStats(this.dataset.game, this.dataset.sid)">Stats</a></td></tr>';
   }
+  if (filtered.length === 0) html += '<tr><td colspan="5" class="empty">No servers match your search</td></tr>';
   html += '</table></div>';
-  document.getElementById('content').innerHTML = html;
+  document.getElementById('server-list').innerHTML = html;
 }
 
 // ── Server Stats ──
-async function loadServerStats(game, serverId) {
-  var data = await api('/server-stats?game=' + encodeURIComponent(game) + '&server_id=' + encodeURIComponent(serverId));
-  if (!data) { document.getElementById('content').innerHTML = '<div class="card empty">Could not load server stats</div>'; return; }
+var currentServerGame = null, currentServerId = null;
+async function loadServerStats(game, serverId, hours) {
+  currentServerGame = game;
+  currentServerId = serverId;
+  hours = hours || 24;
 
-  var html = '<a class="back-link" onclick="loadServers()">Back to Servers</a>';
+  var data = await api('/server-stats?game=' + encodeURIComponent(game) + '&server_id=' + encodeURIComponent(serverId) + '&hours=' + hours);
+  if (!data || !data.summary) { document.getElementById('content').innerHTML = '<div class="card empty">Could not load server stats</div>'; return; }
+
+  var sm = data.summary;
+  var html = '<a class="back-link" onclick="loadServers()">← Back to Servers</a>';
   html += '<h2>' + badge(game) + ' ' + esc(data.name || serverId) + '</h2>';
 
-  if (data.summary) {
-    var sm = data.summary;
-    html += '<div class="stats-row">';
-    html += '<div class="stat-card"><div class="label">Current</div><div class="value">' + (sm.current != null ? sm.current : '—') + '</div></div>';
-    html += '<div class="stat-card"><div class="label">Peak Today</div><div class="value">' + (sm.peak_today != null ? sm.peak_today : '—') + '</div></div>';
-    html += '<div class="stat-card"><div class="label">Peak 24h</div><div class="value">' + (sm.peak_24h != null ? sm.peak_24h : '—') + '</div></div>';
-    html += '<div class="stat-card"><div class="label">Average 24h</div><div class="value">' + (sm.avg_24h != null ? sm.avg_24h : '—') + '</div></div>';
+  // Stat cards - top row
+  html += '<div class="stats-row">';
+  html += '<div class="stat-card"><div class="label">Current</div><div class="value">' + (sm.current != null ? sm.current : '—') + '</div></div>';
+  html += '<div class="stat-card"><div class="label">Peak Today</div><div class="value">' + (sm.peak_today != null ? sm.peak_today : '—') + '</div></div>';
+  html += '<div class="stat-card"><div class="label">Peak 24h</div><div class="value">' + (sm.peak_24h != null ? sm.peak_24h : '—') + '</div></div>';
+  html += '<div class="stat-card"><div class="label">Peak 7d</div><div class="value">' + (sm.peak_7d != null ? sm.peak_7d : '—') + '</div></div>';
+  html += '<div class="stat-card"><div class="label">All-time Peak</div><div class="value">' + (sm.peak_alltime != null ? sm.peak_alltime : '—') + '</div></div>';
+  html += '</div>';
+
+  // Stat cards - second row
+  html += '<div class="stats-row">';
+  html += '<div class="stat-card"><div class="label">Avg 24h</div><div class="value">' + (sm.avg_24h != null ? sm.avg_24h : '—') + '</div></div>';
+  html += '<div class="stat-card"><div class="label">Avg 7d</div><div class="value">' + (sm.avg_7d != null ? sm.avg_7d : '—') + '</div></div>';
+  html += '<div class="stat-card"><div class="label">Min 24h</div><div class="value">' + (sm.min_24h != null ? sm.min_24h : '—') + '</div></div>';
+  html += '<div class="stat-card"><div class="label">Uptime 24h</div><div class="value">' + (sm.uptime_pct != null ? sm.uptime_pct + '%' : '—') + '</div></div>';
+  html += '</div>';
+
+  // Timeframe toggle
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px"><h2>Player History</h2>';
+  html += '<div class="tf-toggle">';
+  html += '<button class="tf-btn' + (hours === 24 ? ' active' : '') + '" onclick="loadServerStats(currentServerGame,currentServerId,24)">24h</button>';
+  html += '<button class="tf-btn' + (hours === 72 ? ' active' : '') + '" onclick="loadServerStats(currentServerGame,currentServerId,72)">3d</button>';
+  html += '<button class="tf-btn' + (hours === 168 ? ' active' : '') + '" onclick="loadServerStats(currentServerGame,currentServerId,168)">7d</button>';
+  html += '</div></div>';
+
+  // Chart
+  if (data.history && data.history.length > 0) {
+    var colors = { ragemp: '#3fb950', redm: '#f47067', samp: '#58a6ff' };
+    var useDateLabels = hours > 24;
+    var chartData = data.history.map(function(h) {
+      return { label: useDateLabels ? fmtDate(h.recorded_at) : fmtTime(h.recorded_at), value: h.players };
+    });
+    html += '<div class="card">' + areaChart(chartData, 220, colors[game] || '#3fb950') + '</div>';
+  } else {
+    html += '<div class="card empty">No history found for this timeframe</div>';
+  }
+
+  // Daily Peaks bar chart
+  if (data.daily_peaks && data.daily_peaks.length > 0) {
+    html += '<h2>Daily Peaks (Last 7 Days)</h2><div class="card">';
+    var dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    var barData = data.daily_peaks.map(function(d) {
+      var dt = new Date(d.day);
+      var dayLabel = dayNames[dt.getDay()] + ' ' + String(dt.getDate()).padStart(2,'0') + '.' + String(dt.getMonth()+1).padStart(2,'0');
+      return { label: dayLabel, value: parseInt(d.peak) || 0 };
+    });
+    html += peakBars(barData);
     html += '</div>';
   }
 
+  // Raw data table
   if (data.history && data.history.length > 0) {
-    var colors = { ragemp: '#3fb950', redm: '#f47067', samp: '#58a6ff' };
-    html += '<h2>Player History (24h)</h2><div class="card">';
-    var chartData = data.history.map(function(h) { return { label: fmtTime(h.recorded_at), value: h.players }; });
-    html += areaChart(chartData, 200, colors[game] || '#3fb950');
-    html += '</div>';
-
-    html += '<h2>Raw Data</h2><div class="card scroll-table"><table>';
+    html += '<h2>Raw Data (' + data.history.length + ' records)</h2><div class="card scroll-table"><table>';
     html += '<tr><th>Time</th><th class="num">Players</th><th class="num">API Peak</th></tr>';
-    for (var i = 0; i < data.history.length; i++) {
+    var step = data.history.length > 200 ? Math.ceil(data.history.length / 200) : 1;
+    for (var i = data.history.length - 1; i >= 0; i -= step) {
       var h = data.history[i];
       html += '<tr><td>' + fmtDate(h.recorded_at) + '</td><td class="num"><strong>' + h.players + '</strong></td><td class="num">' + (h.api_peak != null ? h.api_peak : '—') + '</td></tr>';
     }
     html += '</table></div>';
-  } else {
-    html += '<div class="card empty">No history found for this server</div>';
   }
 
   document.getElementById('content').innerHTML = html;
@@ -594,6 +660,7 @@ app.get('/api/server-stats', async (req, res) => {
   if (!pool) return res.json({});
 
   const { game, server_id } = req.query;
+  const hours = Math.min(parseInt(req.query.hours) || 24, 168);
   if (!game || !server_id) return res.status(400).json({ error: 'game and server_id required' });
 
   try {
@@ -605,45 +672,93 @@ app.get('/api/server-stats', async (req, res) => {
       ORDER BY s.recorded_at DESC LIMIT 1
     `, [game, server_id]);
 
-    // 24h history
+    // History for requested timeframe
     const { rows: history } = await pool.query(`
       SELECT sr.players, sr.api_peak, s.recorded_at
       FROM server_records sr
       JOIN snapshots s ON s.id = sr.snapshot_id
-      WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - INTERVAL '24 hours'
+      WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - make_interval(hours => $3)
       ORDER BY s.recorded_at ASC
-    `, [game, server_id]);
+    `, [game, server_id, hours]);
 
-    // Summary
-    const { rows: [summary] } = await pool.query(`
+    // 24h summary
+    const { rows: [summary24] } = await pool.query(`
       SELECT
-        MAX(sr.players) AS peak_24h,
-        ROUND(AVG(sr.players))::int AS avg_24h
+        MAX(sr.players) AS peak,
+        ROUND(AVG(sr.players))::int AS avg,
+        MIN(sr.players) AS min
       FROM server_records sr
       JOIN snapshots s ON s.id = sr.snapshot_id
       WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - INTERVAL '24 hours'
     `, [game, server_id]);
 
+    // 7d summary
+    const { rows: [summary7d] } = await pool.query(`
+      SELECT
+        MAX(sr.players) AS peak,
+        ROUND(AVG(sr.players))::int AS avg,
+        MIN(sr.players) AS min
+      FROM server_records sr
+      JOIN snapshots s ON s.id = sr.snapshot_id
+      WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - INTERVAL '7 days'
+    `, [game, server_id]);
+
     // Peak today
     const { rows: [peakToday] } = await pool.query(`
-      SELECT MAX(sr.players) AS peak_today
+      SELECT MAX(sr.players) AS peak
       FROM server_records sr
       JOIN snapshots s ON s.id = sr.snapshot_id
       WHERE s.game = $1 AND sr.server_id = $2
         AND s.recorded_at >= (NOW() AT TIME ZONE 'Asia/Tbilisi')::date AT TIME ZONE 'Asia/Tbilisi'
     `, [game, server_id]);
 
-    // Current (latest)
+    // All-time peak
+    const { rows: [allTimePeak] } = await pool.query(`
+      SELECT MAX(sr.players) AS peak
+      FROM server_records sr
+      JOIN snapshots s ON s.id = sr.snapshot_id
+      WHERE s.game = $1 AND sr.server_id = $2
+    `, [game, server_id]);
+
+    // Daily peaks (last 7 days, per Georgian day)
+    const { rows: dailyPeaks } = await pool.query(`
+      SELECT
+        (s.recorded_at AT TIME ZONE 'Asia/Tbilisi')::date AS day,
+        MAX(sr.players) AS peak
+      FROM server_records sr
+      JOIN snapshots s ON s.id = sr.snapshot_id
+      WHERE s.game = $1 AND sr.server_id = $2
+        AND s.recorded_at >= ((NOW() AT TIME ZONE 'Asia/Tbilisi')::date - INTERVAL '7 days') AT TIME ZONE 'Asia/Tbilisi'
+      GROUP BY day ORDER BY day DESC
+    `, [game, server_id]);
+
+    // Uptime % (24h) — minutes with at least 1 player
+    const { rows: [uptime24] } = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE sr.players > 0) AS active,
+        COUNT(*) AS total
+      FROM server_records sr
+      JOIN snapshots s ON s.id = sr.snapshot_id
+      WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - INTERVAL '24 hours'
+    `, [game, server_id]);
+
     const current = history.length > 0 ? history[history.length - 1].players : null;
+    const uptimePct = uptime24?.total > 0 ? Math.round((uptime24.active / uptime24.total) * 100) : null;
 
     res.json({
       name: nameRows[0]?.name || server_id,
       summary: {
         current,
-        peak_today: peakToday?.peak_today ?? null,
-        peak_24h: summary?.peak_24h ?? null,
-        avg_24h: summary?.avg_24h ?? null
+        peak_today: peakToday?.peak ?? null,
+        peak_24h: summary24?.peak ?? null,
+        avg_24h: summary24?.avg ?? null,
+        min_24h: summary24?.min ?? null,
+        peak_7d: summary7d?.peak ?? null,
+        avg_7d: summary7d?.avg ?? null,
+        peak_alltime: allTimePeak?.peak ?? null,
+        uptime_pct: uptimePct
       },
+      daily_peaks: dailyPeaks,
       history
     });
   } catch (err) {
