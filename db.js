@@ -126,4 +126,63 @@ async function cleanup(daysToKeep = 90) {
   }
 }
 
-module.exports = { init, isConnected, recordSnapshot, getPeakToday, cleanup, getPool: () => pool };
+/**
+ * Combined peak today (ragemp + redm + samp summed per minute).
+ * Returns { p } or null.
+ */
+async function getCombinedPeakToday() {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(`
+      WITH minutely AS (
+        SELECT
+          date_trunc('minute', recorded_at) AS min,
+          SUM(total_players) AS total
+        FROM snapshots
+        WHERE game IN ('ragemp', 'redm', 'samp')
+          AND recorded_at >= (NOW() AT TIME ZONE 'Asia/Tbilisi')::date AT TIME ZONE 'Asia/Tbilisi'
+        GROUP BY min
+      )
+      SELECT MAX(total) AS peak FROM minutely
+    `);
+    if (rows.length === 0 || rows[0].peak === null) return null;
+    return { p: Number(rows[0].peak) };
+  } catch (err) {
+    console.error('[db] getCombinedPeakToday error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Combined daily peaks for the last N days (excluding today).
+ * Returns array of { date, peak } ordered most recent first.
+ */
+async function getDailyPeaks(days = 7) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`
+      WITH minutely AS (
+        SELECT
+          date_trunc('minute', recorded_at) AS min,
+          SUM(total_players) AS total
+        FROM snapshots
+        WHERE game IN ('ragemp', 'redm', 'samp')
+          AND recorded_at >= ((NOW() AT TIME ZONE 'Asia/Tbilisi')::date - $1 * INTERVAL '1 day') AT TIME ZONE 'Asia/Tbilisi'
+          AND recorded_at < (NOW() AT TIME ZONE 'Asia/Tbilisi')::date AT TIME ZONE 'Asia/Tbilisi'
+        GROUP BY min
+      )
+      SELECT
+        (min AT TIME ZONE 'Asia/Tbilisi')::date AS day,
+        MAX(total) AS peak
+      FROM minutely
+      GROUP BY day
+      ORDER BY day DESC
+    `, [days]);
+    return rows.map(r => ({ date: r.day, peak: Number(r.peak) }));
+  } catch (err) {
+    console.error('[db] getDailyPeaks error:', err.message);
+    return [];
+  }
+}
+
+module.exports = { init, isConnected, recordSnapshot, getPeakToday, getCombinedPeakToday, getDailyPeaks, cleanup, getPool: () => pool };

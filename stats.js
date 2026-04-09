@@ -229,6 +229,38 @@ function getPeak7d(game) {
   return history.reduce((max, e) => (e.p > max.p ? e : max), history[0]);
 }
 
+/**
+ * Local fallback: combined daily peaks for the last N days (excluding today).
+ * Returns array of { daysAgo, peak } ordered most recent first.
+ */
+function getDailyPeaksLocal(days = 7) {
+  const GEORGIAN_OFFSET = 4 * 3600 * 1000;
+  const now = Date.now();
+  const allSnaps = loadStats().snapshots;
+  const results = [];
+
+  for (let d = 1; d <= days; d++) {
+    const gNow = new Date(now + GEORGIAN_OFFSET);
+    gNow.setUTCDate(gNow.getUTCDate() - d);
+    const dayStartUTC = Date.UTC(gNow.getUTCFullYear(), gNow.getUTCMonth(), gNow.getUTCDate());
+    const startTs = Math.floor((dayStartUTC - GEORGIAN_OFFSET) / 1000);
+    const endTs = startTs + 86400;
+
+    // Sum per-game totals at each snapshot minute
+    const byMinute = new Map();
+    for (const snap of allSnaps) {
+      if (snap.timestamp < startTs || snap.timestamp >= endTs) continue;
+      if (!['ragemp', 'redm', 'samp'].includes(snap.game)) continue;
+      const min = Math.floor(snap.timestamp / 60);
+      byMinute.set(min, (byMinute.get(min) || 0) + snap.total_players);
+    }
+    let max = 0;
+    for (const v of byMinute.values()) if (v > max) max = v;
+    if (max > 0) results.push({ daysAgo: d, peak: max });
+  }
+  return results;
+}
+
 /** Record a combined snapshot summing all platform totals. */
 function recordCombinedSnapshot() {
   const games = ['ragemp', 'redm', 'samp'];
@@ -280,5 +312,6 @@ module.exports = {
   getAllServerPeaksToday,
   recordCombinedSnapshot,
   stripLeadingEmoji,
+  getDailyPeaksLocal,
   getDailySummary
 };
