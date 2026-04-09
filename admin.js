@@ -1,22 +1,100 @@
 const express = require('express');
+const crypto = require('crypto');
 const db = require('./db');
 
 const app = express();
 const PORT = process.env.ADMIN_PORT || process.env.PORT || 3000;
 
-// Simple auth via ADMIN_KEY env var (query param ?key=...)
+// ── Session-based auth ──────────────────────────────────────────
+const sessions = new Map();
+
+app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
+
+function generateToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
 function auth(req, res, next) {
   const key = process.env.ADMIN_KEY;
-  if (!key) return next(); // no key set = open (dev mode)
-  if (req.query.key === key) return next();
-  return res.status(401).send('Unauthorized — add ?key=YOUR_ADMIN_KEY');
+  if (!key) return next(); // no key = open
+
+  // Check cookie
+  const cookie = (req.headers.cookie || '').split(';').find(c => c.trim().startsWith('session='));
+  const token = cookie?.split('=')?.[1]?.trim();
+  if (token && sessions.has(token)) return next();
+
+  // Login page and API auth should be excluded
+  if (req.path === '/login') return next();
+
+  // For API calls return 401
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Unauthorized' });
+
+  // Redirect to login
+  return res.redirect('/login');
 }
 
 app.use(auth);
 
+// ── Login ───────────────────────────────────────────────────────
+app.get('/login', (req, res) => {
+  const error = req.query.error ? '<div class="status err">Wrong password</div>' : '';
+  res.send(/*html*/`<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pledii — Login</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .login-box { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 40px; width: 360px; text-align: center; }
+  h1 { color: #58a6ff; margin-bottom: 8px; font-size: 24px; }
+  p { color: #8b949e; margin-bottom: 24px; font-size: 14px; }
+  input[type=password] { width: 100%; background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; padding: 12px 16px; border-radius: 8px; font-size: 15px; margin-bottom: 16px; outline: none; }
+  input[type=password]:focus { border-color: #58a6ff; }
+  button { width: 100%; background: #238636; color: #fff; border: none; padding: 12px; border-radius: 8px; font-size: 15px; cursor: pointer; font-weight: 600; }
+  button:hover { background: #2ea043; }
+  .status { padding: 10px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; }
+  .err { background: #2d1117; border: 1px solid #da3633; color: #f85149; }
+</style>
+</head><body>
+<div class="login-box">
+  <h1>🎮 Pledii</h1>
+  <p>Enter admin password to continue</p>
+  ${error}
+  <form method="POST" action="/login">
+    <input type="password" name="password" placeholder="Password" autofocus required>
+    <button type="submit">Login</button>
+  </form>
+</div>
+</body></html>`);
+});
+
+app.post('/login', (req, res) => {
+  const key = process.env.ADMIN_KEY;
+  if (!key || req.body.password === key) {
+    const token = generateToken();
+    sessions.set(token, Date.now());
+    // Clean old sessions (keep last 50)
+    if (sessions.size > 50) {
+      const oldest = [...sessions.entries()].sort((a, b) => a[1] - b[1]);
+      for (let i = 0; i < sessions.size - 50; i++) sessions.delete(oldest[i][0]);
+    }
+    res.setHeader('Set-Cookie', `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`);
+    return res.redirect('/');
+  }
+  return res.redirect('/login?error=1');
+});
+
+app.get('/logout', (req, res) => {
+  const cookie = (req.headers.cookie || '').split(';').find(c => c.trim().startsWith('session='));
+  const token = cookie?.split('=')?.[1]?.trim();
+  if (token) sessions.delete(token);
+  res.setHeader('Set-Cookie', 'session=; Path=/; HttpOnly; Max-Age=0');
+  res.redirect('/login');
+});
+
 // ── HTML Dashboard ──────────────────────────────────────────────
 app.get('/', (req, res) => {
-  const keyParam = process.env.ADMIN_KEY ? `&key=${req.query.key || ''}` : '';
   res.send(/*html*/`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -25,148 +103,274 @@ app.get('/', (req, res) => {
 <title>Pledii Admin</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
-  h1 { color: #58a6ff; margin-bottom: 8px; }
-  h2 { color: #8b949e; margin: 24px 0 12px; font-size: 1.1em; }
-  .status { padding: 12px 16px; border-radius: 8px; margin: 12px 0; font-size: 14px; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+
+  /* Header */
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .header h1 { color: #58a6ff; font-size: 22px; }
+  .header a { color: #8b949e; font-size: 13px; text-decoration: none; }
+  .header a:hover { color: #f85149; }
+
+  /* Status */
+  .status { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
   .ok { background: #0d2818; border: 1px solid #238636; }
   .err { background: #2d1117; border: 1px solid #da3633; }
-  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin: 12px 0; }
+
+  /* Stats row */
+  .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .stat-card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 16px; }
+  .stat-card .label { color: #8b949e; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { color: #f0f6fc; font-size: 28px; font-weight: 700; margin: 4px 0; }
+  .stat-card .sub { color: #8b949e; font-size: 12px; }
+  .stat-card .peak { color: #3fb950; font-size: 13px; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid #21262d; padding-bottom: 0; }
+  .tab { padding: 10px 18px; color: #8b949e; cursor: pointer; text-decoration: none; font-size: 14px; border-bottom: 2px solid transparent; transition: all 0.15s; }
+  .tab:hover { color: #c9d1d9; }
+  .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+
+  /* Cards & Tables */
+  h2 { color: #f0f6fc; margin: 20px 0 10px; font-size: 16px; font-weight: 600; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #21262d; }
   th { color: #8b949e; font-weight: 600; position: sticky; top: 0; background: #161b22; }
   tr:hover td { background: #1c2128; }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .tabs { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
-  .tab { padding: 8px 16px; border-radius: 6px; background: #21262d; color: #c9d1d9; border: 1px solid #30363d; cursor: pointer; text-decoration: none; font-size: 13px; }
-  .tab.active, .tab:hover { background: #30363d; color: #58a6ff; }
-  .meta { color: #8b949e; font-size: 12px; margin: 4px 0; }
-  .chart-bar { background: #238636; height: 18px; border-radius: 3px; min-width: 2px; }
-  .chart-row { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
-  .chart-label { font-size: 11px; color: #8b949e; min-width: 50px; text-align: right; }
-  .chart-val { font-size: 11px; color: #c9d1d9; min-width: 30px; }
-  #loading { color: #8b949e; padding: 40px; text-align: center; }
   .scroll-table { max-height: 500px; overflow-y: auto; }
-  select, input { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; padding: 6px 10px; border-radius: 6px; font-size: 13px; }
+  .clickable { color: #58a6ff; cursor: pointer; text-decoration: none; }
+  .clickable:hover { text-decoration: underline; }
+
+  /* Bar chart */
+  .chart { padding: 8px 0; }
+  .chart-bar { background: linear-gradient(90deg, #238636, #3fb950); height: 20px; border-radius: 4px; min-width: 2px; transition: width 0.3s; }
+  .chart-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+  .chart-label { font-size: 11px; color: #8b949e; min-width: 55px; text-align: right; }
+  .chart-val { font-size: 12px; color: #c9d1d9; min-width: 35px; font-weight: 600; }
+
+  /* Misc */
+  .meta { color: #8b949e; font-size: 12px; margin: 6px 0; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-ragemp { background: #1a3a1a; color: #3fb950; }
+  .badge-redm { background: #3a1a1a; color: #f85149; }
+  .badge-samp { background: #1a2a3a; color: #58a6ff; }
+  select, input[type=text] { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; padding: 8px 12px; border-radius: 8px; font-size: 13px; outline: none; }
+  select:focus, input[type=text]:focus { border-color: #58a6ff; }
+  .empty { color: #484f58; text-align: center; padding: 40px; font-size: 14px; }
+  .back-link { color: #58a6ff; font-size: 13px; cursor: pointer; margin-bottom: 12px; display: inline-block; }
+  .back-link:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
-<h1>🎮 Pledii Admin Panel</h1>
-<div id="status">Loading...</div>
+<div class="container">
 
-<div class="tabs">
-  <a class="tab active" onclick="loadOverview()" href="#">Overview</a>
-  <a class="tab" onclick="loadSnapshots('ragemp')" href="#">RageMP</a>
-  <a class="tab" onclick="loadSnapshots('redm')" href="#">RedM</a>
-  <a class="tab" onclick="loadSnapshots('samp')" href="#">SA-MP</a>
-  <a class="tab" onclick="loadServers()" href="#">Servers</a>
+<div class="header">
+  <h1>🎮 Pledii Admin</h1>
+  <a href="/logout">Logout</a>
 </div>
 
-<div id="content"><div id="loading">Loading...</div></div>
+<div id="status"></div>
+<div id="stats-row" class="stats-row"></div>
 
+<div class="tabs" id="tabs">
+  <a class="tab active" data-tab="overview">Overview</a>
+  <a class="tab" data-tab="ragemp">RageMP</a>
+  <a class="tab" data-tab="redm">RedM</a>
+  <a class="tab" data-tab="samp">SA-MP</a>
+  <a class="tab" data-tab="servers">Servers</a>
+</div>
+
+<div id="content"></div>
+
+</div>
 <script>
-const KP = '${keyParam}';
-function api(path) { return fetch('/api' + path + '?_=' + Date.now() + KP).then(r => r.json()); }
+function api(path) { return fetch('/api' + path + (path.includes('?') ? '&' : '?') + '_=' + Date.now()).then(r => r.json()); }
 
-function setActive(el) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  if (el?.target) el.target.classList.add('active');
-}
-
-async function loadStatus() {
-  const s = await api('/status');
-  const el = document.getElementById('status');
-  if (s.db) {
-    el.innerHTML = '<div class="status ok">✅ Database connected — ' + s.snapshots + ' snapshots, ' + s.server_records + ' server records</div>';
-  } else {
-    el.innerHTML = '<div class="status err">❌ Database not connected</div>';
-  }
-}
+// ── Tabs ──
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    const name = tab.dataset.tab;
+    if (name === 'overview') loadOverview();
+    else if (name === 'servers') loadServers();
+    else loadGame(name);
+  });
+});
 
 function timeAgo(iso) {
-  const d = new Date(iso);
-  const s = Math.floor((Date.now() - d) / 1000);
+  const s = Math.floor((Date.now() - new Date(iso)) / 1000);
   if (s < 60) return s + 's ago';
   if (s < 3600) return Math.floor(s/60) + 'm ago';
   if (s < 86400) return Math.floor(s/3600) + 'h ago';
   return Math.floor(s/86400) + 'd ago';
 }
+function fmtTime(iso) { return new Date(iso).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
+function fmtDate(iso) { return new Date(iso).toLocaleDateString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+function badge(game) { return '<span class="badge badge-' + game + '">' + game + '</span>'; }
 
-function barChart(data, maxVal) {
-  if (!maxVal) maxVal = Math.max(...data.map(d => d.value), 1);
-  return data.map(d => {
-    const pct = (d.value / maxVal * 100).toFixed(1);
+function barChart(data) {
+  const maxVal = Math.max(...data.map(d => d.value), 1);
+  return '<div class="chart">' + data.map(d => {
+    const pct = Math.max((d.value / maxVal * 100), 0.5).toFixed(1);
     return '<div class="chart-row"><span class="chart-label">' + d.label +
       '</span><div class="chart-bar" style="width:' + pct + '%"></div><span class="chart-val">' + d.value + '</span></div>';
-  }).join('');
+  }).join('') + '</div>';
 }
 
-async function loadOverview() {
-  const [overview, peaks] = await Promise.all([api('/overview'), api('/peaks-today')]);
-  let html = '<h2>Current Players</h2><div class="card">';
+// ── Status + Stats Cards ──
+async function loadStatus() {
+  const s = await api('/status');
+  const el = document.getElementById('status');
+  el.innerHTML = s.db
+    ? '<div class="status ok">✅ Database connected — ' + s.snapshots.toLocaleString() + ' snapshots, ' + s.server_records.toLocaleString() + ' server records</div>'
+    : '<div class="status err">❌ Database not connected</div>';
+}
+
+async function loadStatsRow() {
+  const overview = await api('/overview');
+  const el = document.getElementById('stats-row');
+  if (!overview.length) { el.innerHTML = ''; return; }
+
+  let total = 0;
+  let html = '';
   for (const g of overview) {
-    html += '<div style="margin:8px 0"><strong>' + g.game + '</strong>: ' + g.current + ' players (peak today: ' + (g.peak_today || 'N/A') + ')</div>';
+    total += g.current;
+    html += '<div class="stat-card"><div class="label">' + g.game + '</div><div class="value">' + g.current + '</div>'
+      + (g.peak_today ? '<div class="peak">↑ Peak today: ' + g.peak_today + '</div>' : '')
+      + '<div class="sub">Updated ' + timeAgo(g.last_updated) + '</div></div>';
+  }
+  html = '<div class="stat-card"><div class="label">Total Online</div><div class="value">' + total + '</div><div class="sub">All platforms</div></div>' + html;
+  el.innerHTML = html;
+}
+
+// ── Overview ──
+async function loadOverview() {
+  const [peaks, recent] = await Promise.all([api('/peaks-today'), api('/snapshots?limit=30')]);
+
+  let html = '<h2>Today\'s Peaks</h2><div class="card">';
+  if (peaks.length) {
+    html += barChart(peaks.map(p => ({ label: p.game, value: parseInt(p.peak) })));
+  } else {
+    html += '<div class="empty">No data yet today</div>';
   }
   html += '</div>';
 
-  html += '<h2>Today\\'s Peaks</h2><div class="card">';
-  html += barChart(peaks.map(p => ({ label: p.game, value: p.peak })), null);
-  html += '</div>';
-
-  const recent = await api('/snapshots?limit=20');
-  html += '<h2>Recent Snapshots (all games)</h2><div class="card scroll-table"><table><tr><th>#</th><th>Game</th><th class="num">Players</th><th>Time</th></tr>';
+  html += '<h2>Recent Snapshots</h2><div class="card scroll-table"><table>';
+  html += '<tr><th>ID</th><th>Game</th><th class="num">Players</th><th class="num">Servers</th><th>Time</th></tr>';
   for (const s of recent) {
-    html += '<tr><td>' + s.id + '</td><td>' + s.game + '</td><td class="num">' + s.total_players + '</td><td>' + timeAgo(s.recorded_at) + '</td></tr>';
+    html += '<tr><td>' + s.id + '</td><td>' + badge(s.game) + '</td><td class="num"><strong>' + s.total_players + '</strong></td><td class="num">' + (s.server_count||0) + '</td><td title="' + fmtDate(s.recorded_at) + '">' + timeAgo(s.recorded_at) + '</td></tr>';
   }
   html += '</table></div>';
   document.getElementById('content').innerHTML = html;
 }
 
-async function loadSnapshots(game) {
+// ── Per-Game View ──
+async function loadGame(game) {
   const snaps = await api('/snapshots?game=' + game + '&limit=100');
-  let html = '<h2>' + game.toUpperCase() + ' — Last 100 Snapshots</h2>';
+
+  let html = '<h2>' + game.toUpperCase() + ' — Player History</h2>';
 
   if (snaps.length > 0) {
-    const chartData = snaps.slice().reverse().slice(-50).map(s => ({
-      label: new Date(s.recorded_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
-      value: s.total_players
+    const chartData = snaps.slice().reverse().slice(-60).map(s => ({
+      label: fmtTime(s.recorded_at), value: s.total_players
     }));
     html += '<div class="card">' + barChart(chartData) + '</div>';
   }
 
-  html += '<div class="card scroll-table"><table><tr><th>#</th><th class="num">Players</th><th>Servers</th><th>Time</th><th>Actions</th></tr>';
+  html += '<h2>Snapshots</h2><div class="card scroll-table"><table>';
+  html += '<tr><th>ID</th><th class="num">Players</th><th class="num">Servers</th><th>Time</th><th></th></tr>';
   for (const s of snaps) {
-    html += '<tr><td>' + s.id + '</td><td class="num">' + s.total_players + '</td><td class="num">' + (s.server_count||0) + '</td><td>' + timeAgo(s.recorded_at) + '</td><td><a href="#" onclick="loadSnapshotDetail(' + s.id + ')" style="color:#58a6ff">detail</a></td></tr>';
+    html += '<tr><td>' + s.id + '</td><td class="num"><strong>' + s.total_players + '</strong></td><td class="num">' + (s.server_count||0) + '</td><td title="' + fmtDate(s.recorded_at) + '">' + timeAgo(s.recorded_at) + '</td>';
+    html += '<td><a class="clickable" onclick="loadSnapshot(' + s.id + ')">Details</a></td></tr>';
   }
   html += '</table></div>';
   document.getElementById('content').innerHTML = html;
 }
 
-async function loadSnapshotDetail(id) {
+// ── Snapshot Detail ──
+async function loadSnapshot(id) {
   const data = await api('/snapshot/' + id);
-  let html = '<h2>Snapshot #' + data.id + ' — ' + data.game + '</h2>';
-  html += '<div class="meta">' + new Date(data.recorded_at).toLocaleString() + ' • Total: ' + data.total_players + ' players</div>';
-  html += '<div class="card scroll-table"><table><tr><th>#</th><th>Server</th><th>Name</th><th class="num">Players</th><th class="num">API Peak</th></tr>';
+  let html = '<a class="back-link" onclick="history.back()">← Back</a>';
+  html += '<h2>Snapshot #' + data.id + '</h2>';
+  html += '<div class="meta">' + badge(data.game) + ' &nbsp; ' + fmtDate(data.recorded_at) + ' &nbsp; Total: <strong>' + data.total_players + '</strong> players</div>';
+
+  html += '<div class="card scroll-table"><table>';
+  html += '<tr><th>#</th><th>Server ID</th><th>Name</th><th class="num">Players</th><th class="num">API Peak</th><th></th></tr>';
   (data.servers || []).forEach((s, i) => {
-    html += '<tr><td>' + (i+1) + '</td><td style="font-size:11px">' + s.server_id + '</td><td>' + s.name + '</td><td class="num">' + s.players + '</td><td class="num">' + (s.api_peak ?? '-') + '</td></tr>';
+    html += '<tr><td>' + (i+1) + '</td><td style="font-size:11px;color:#8b949e">' + esc(s.server_id) + '</td><td>' + esc(s.name) + '</td><td class="num"><strong>' + s.players + '</strong></td><td class="num">' + (s.api_peak ?? '—') + '</td>';
+    html += '<td><a class="clickable" onclick="loadServerStats(\\'' + data.game + '\\',\\'' + esc(s.server_id) + '\\')">History</a></td></tr>';
   });
   html += '</table></div>';
   document.getElementById('content').innerHTML = html;
 }
 
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ── Servers List ──
 async function loadServers() {
   const servers = await api('/servers');
-  let html = '<h2>All Known Servers</h2>';
-  html += '<div class="card scroll-table"><table><tr><th>Game</th><th>Server ID</th><th>Name</th><th class="num">Latest Players</th><th>Last Seen</th></tr>';
+
+  let html = '<h2>All Known Servers (' + servers.length + ')</h2>';
+  html += '<div class="card scroll-table"><table>';
+  html += '<tr><th>Game</th><th>Server ID</th><th>Name</th><th class="num">Players</th><th>Last Seen</th><th></th></tr>';
   for (const s of servers) {
-    html += '<tr><td>' + s.game + '</td><td style="font-size:11px">' + s.server_id + '</td><td>' + s.name + '</td><td class="num">' + s.players + '</td><td>' + timeAgo(s.last_seen) + '</td></tr>';
+    html += '<tr><td>' + badge(s.game) + '</td><td style="font-size:11px;color:#8b949e">' + esc(s.server_id) + '</td><td>' + esc(s.name) + '</td><td class="num"><strong>' + s.players + '</strong></td><td>' + timeAgo(s.last_seen) + '</td>';
+    html += '<td><a class="clickable" onclick="loadServerStats(\\'' + s.game + '\\',\\'' + esc(s.server_id) + '\\')">Stats</a></td></tr>';
   }
   html += '</table></div>';
   document.getElementById('content').innerHTML = html;
 }
 
+// ── Server Stats ──
+async function loadServerStats(game, serverId) {
+  const data = await api('/server-stats?game=' + encodeURIComponent(game) + '&server_id=' + encodeURIComponent(serverId));
+
+  let html = '<a class="back-link" onclick="loadServers()">← Back to Servers</a>';
+  html += '<h2>' + badge(game) + ' &nbsp; ' + esc(data.name || serverId) + '</h2>';
+
+  // Summary stats
+  if (data.summary) {
+    const s = data.summary;
+    html += '<div class="stats-row">';
+    html += '<div class="stat-card"><div class="label">Current</div><div class="value">' + (s.current ?? '—') + '</div></div>';
+    html += '<div class="stat-card"><div class="label">Peak Today</div><div class="value">' + (s.peak_today ?? '—') + '</div></div>';
+    html += '<div class="stat-card"><div class="label">Peak 24h</div><div class="value">' + (s.peak_24h ?? '—') + '</div></div>';
+    html += '<div class="stat-card"><div class="label">Average 24h</div><div class="value">' + (s.avg_24h ?? '—') + '</div></div>';
+    html += '</div>';
+  }
+
+  // Chart
+  if (data.history && data.history.length > 0) {
+    html += '<h2>Player History (24h)</h2><div class="card">';
+    const chartData = data.history.map(h => ({ label: fmtTime(h.recorded_at), value: h.players }));
+    html += barChart(chartData);
+    html += '</div>';
+  }
+
+  // History table
+  if (data.history && data.history.length > 0) {
+    html += '<h2>Raw Data</h2><div class="card scroll-table"><table>';
+    html += '<tr><th>Time</th><th class="num">Players</th><th class="num">API Peak</th></tr>';
+    for (const h of data.history) {
+      html += '<tr><td>' + fmtDate(h.recorded_at) + '</td><td class="num"><strong>' + h.players + '</strong></td><td class="num">' + (h.api_peak ?? '—') + '</td></tr>';
+    }
+    html += '</table></div>';
+  } else {
+    html += '<div class="card empty">No history found for this server</div>';
+  }
+
+  document.getElementById('content').innerHTML = html;
+}
+
+// ── Init ──
 loadStatus();
+loadStatsRow();
 loadOverview();
+setInterval(() => { loadStatus(); loadStatsRow(); }, 60000);
 </script>
 </body>
 </html>`);
@@ -292,6 +496,68 @@ app.get('/api/servers', async (req, res) => {
       ORDER BY sr.server_id, s.game, s.recorded_at DESC
     `);
     res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/server-stats', async (req, res) => {
+  const pool = db.getPool();
+  if (!pool) return res.json({});
+
+  const { game, server_id } = req.query;
+  if (!game || !server_id) return res.status(400).json({ error: 'game and server_id required' });
+
+  try {
+    // Latest name
+    const { rows: nameRows } = await pool.query(`
+      SELECT sr.name FROM server_records sr
+      JOIN snapshots s ON s.id = sr.snapshot_id
+      WHERE s.game = $1 AND sr.server_id = $2
+      ORDER BY s.recorded_at DESC LIMIT 1
+    `, [game, server_id]);
+
+    // 24h history
+    const { rows: history } = await pool.query(`
+      SELECT sr.players, sr.api_peak, s.recorded_at
+      FROM server_records sr
+      JOIN snapshots s ON s.id = sr.snapshot_id
+      WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - INTERVAL '24 hours'
+      ORDER BY s.recorded_at ASC
+    `, [game, server_id]);
+
+    // Summary
+    const { rows: [summary] } = await pool.query(`
+      SELECT
+        MAX(sr.players) AS peak_24h,
+        ROUND(AVG(sr.players))::int AS avg_24h
+      FROM server_records sr
+      JOIN snapshots s ON s.id = sr.snapshot_id
+      WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - INTERVAL '24 hours'
+    `, [game, server_id]);
+
+    // Peak today
+    const { rows: [peakToday] } = await pool.query(`
+      SELECT MAX(sr.players) AS peak_today
+      FROM server_records sr
+      JOIN snapshots s ON s.id = sr.snapshot_id
+      WHERE s.game = $1 AND sr.server_id = $2
+        AND s.recorded_at >= (NOW() AT TIME ZONE 'Asia/Tbilisi')::date AT TIME ZONE 'Asia/Tbilisi'
+    `, [game, server_id]);
+
+    // Current (latest)
+    const current = history.length > 0 ? history[history.length - 1].players : null;
+
+    res.json({
+      name: nameRows[0]?.name || server_id,
+      summary: {
+        current,
+        peak_today: peakToday?.peak_today ?? null,
+        peak_24h: summary?.peak_24h ?? null,
+        avg_24h: summary?.avg_24h ?? null
+      },
+      history
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
