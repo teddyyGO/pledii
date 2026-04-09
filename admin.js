@@ -302,7 +302,7 @@ async function loadSnapshot(id) {
   html += '<tr><th>#</th><th>Server ID</th><th>Name</th><th class="num">Players</th><th class="num">API Peak</th><th></th></tr>';
   (data.servers || []).forEach((s, i) => {
     html += '<tr><td>' + (i+1) + '</td><td style="font-size:11px;color:#8b949e">' + esc(s.server_id) + '</td><td>' + esc(s.name) + '</td><td class="num"><strong>' + s.players + '</strong></td><td class="num">' + (s.api_peak ?? '—') + '</td>';
-    html += '<td><a class="clickable" onclick="loadServerStats(\\'' + data.game + '\\',\\'' + esc(s.server_id) + '\\')">History</a></td></tr>';
+    html += '<td><a class="clickable" onclick="loadServerStats(&apos;' + data.game + '&apos;,&apos;' + esc(s.server_id) + '&apos;)">History</a></td></tr>';
   });
   html += '</table></div>';
   document.getElementById('content').innerHTML = html;
@@ -319,7 +319,7 @@ async function loadServers() {
   html += '<tr><th>Game</th><th>Server ID</th><th>Name</th><th class="num">Players</th><th>Last Seen</th><th></th></tr>';
   for (const s of servers) {
     html += '<tr><td>' + badge(s.game) + '</td><td style="font-size:11px;color:#8b949e">' + esc(s.server_id) + '</td><td>' + esc(s.name) + '</td><td class="num"><strong>' + s.players + '</strong></td><td>' + timeAgo(s.last_seen) + '</td>';
-    html += '<td><a class="clickable" onclick="loadServerStats(\\'' + s.game + '\\',\\'' + esc(s.server_id) + '\\')">Stats</a></td></tr>';
+    html += '<td><a class="clickable" onclick="loadServerStats(&apos;' + s.game + '&apos;,&apos;' + esc(s.server_id) + '&apos;)">Stats</a></td></tr>';
   }
   html += '</table></div>';
   document.getElementById('content').innerHTML = html;
