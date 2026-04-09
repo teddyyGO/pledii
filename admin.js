@@ -186,15 +186,23 @@ app.get('/', (req, res) => {
 
 </div>
 <script>
-function api(path) { return fetch('/api' + path + (path.includes('?') ? '&' : '?') + '_=' + Date.now()).then(r => r.json()); }
+async function api(path) {
+  try {
+    const sep = path.includes('?') ? '&' : '?';
+    const r = await fetch('/api' + path + sep + '_=' + Date.now());
+    if (r.status === 401) { window.location = '/login'; return null; }
+    if (!r.ok) return null;
+    return await r.json();
+  } catch(e) { console.error('API error:', e); return null; }
+}
 
 // ── Tabs ──
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', e => {
+document.querySelectorAll('.tab').forEach(function(tab) {
+  tab.addEventListener('click', function(e) {
     e.preventDefault();
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
     tab.classList.add('active');
-    const name = tab.dataset.tab;
+    var name = tab.dataset.tab;
     if (name === 'overview') loadOverview();
     else if (name === 'servers') loadServers();
     else loadGame(name);
@@ -202,7 +210,7 @@ document.querySelectorAll('.tab').forEach(tab => {
 });
 
 function timeAgo(iso) {
-  const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+  var s = Math.floor((Date.now() - new Date(iso)) / 1000);
   if (s < 60) return s + 's ago';
   if (s < 3600) return Math.floor(s/60) + 'm ago';
   if (s < 86400) return Math.floor(s/3600) + 'h ago';
@@ -212,10 +220,12 @@ function fmtTime(iso) { return new Date(iso).toLocaleTimeString([], {hour:'2-dig
 function fmtDate(iso) { return new Date(iso).toLocaleDateString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
 function badge(game) { return '<span class="badge badge-' + game + '">' + game + '</span>'; }
 
+function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
 function barChart(data) {
-  const maxVal = Math.max(...data.map(d => d.value), 1);
-  return '<div class="chart">' + data.map(d => {
-    const pct = Math.max((d.value / maxVal * 100), 0.5).toFixed(1);
+  var maxVal = Math.max.apply(null, data.map(function(d){ return d.value; }).concat([1]));
+  return '<div class="chart">' + data.map(function(d) {
+    var pct = Math.max((d.value / maxVal * 100), 0.5).toFixed(1);
     return '<div class="chart-row"><span class="chart-label">' + d.label +
       '</span><div class="chart-bar" style="width:' + pct + '%"></div><span class="chart-val">' + d.value + '</span></div>';
   }).join('') + '</div>';
@@ -223,24 +233,28 @@ function barChart(data) {
 
 // ── Status + Stats Cards ──
 async function loadStatus() {
-  const s = await api('/status');
-  const el = document.getElementById('status');
-  el.innerHTML = s.db
-    ? '<div class="status ok">✅ Database connected — ' + s.snapshots.toLocaleString() + ' snapshots, ' + s.server_records.toLocaleString() + ' server records</div>'
-    : '<div class="status err">❌ Database not connected</div>';
+  var s = await api('/status');
+  if (!s) return;
+  var el = document.getElementById('status');
+  if (s.db) {
+    el.innerHTML = '<div class="status ok">Connected — ' + (s.snapshots || 0) + ' snapshots, ' + (s.server_records || 0) + ' server records</div>';
+  } else {
+    el.innerHTML = '<div class="status err">Database not connected</div>';
+  }
 }
 
 async function loadStatsRow() {
-  const overview = await api('/overview');
-  const el = document.getElementById('stats-row');
-  if (!overview.length) { el.innerHTML = ''; return; }
+  var overview = await api('/overview');
+  var el = document.getElementById('stats-row');
+  if (!overview || !overview.length) { el.innerHTML = '<div class="empty">No data yet</div>'; return; }
 
-  let total = 0;
-  let html = '';
-  for (const g of overview) {
-    total += g.current;
-    html += '<div class="stat-card"><div class="label">' + g.game + '</div><div class="value">' + g.current + '</div>'
-      + (g.peak_today ? '<div class="peak">↑ Peak today: ' + g.peak_today + '</div>' : '')
+  var total = 0;
+  var html = '';
+  for (var i = 0; i < overview.length; i++) {
+    var g = overview[i];
+    total += g.current || 0;
+    html += '<div class="stat-card"><div class="label">' + g.game + '</div><div class="value">' + (g.current || 0) + '</div>'
+      + (g.peak_today ? '<div class="peak">Peak today: ' + g.peak_today + '</div>' : '')
       + '<div class="sub">Updated ' + timeAgo(g.last_updated) + '</div></div>';
   }
   html = '<div class="stat-card"><div class="label">Total Online</div><div class="value">' + total + '</div><div class="sub">All platforms</div></div>' + html;
@@ -249,11 +263,12 @@ async function loadStatsRow() {
 
 // ── Overview ──
 async function loadOverview() {
-  const [peaks, recent] = await Promise.all([api('/peaks-today'), api('/snapshots?limit=30')]);
+  var peaks = await api('/peaks-today');
+  var recent = await api('/snapshots?limit=30');
 
-  let html = '<h2>Today\'s Peaks</h2><div class="card">';
-  if (peaks.length) {
-    html += barChart(peaks.map(p => ({ label: p.game, value: parseInt(p.peak) })));
+  var html = '<h2>Peaks Today</h2><div class="card">';
+  if (peaks && peaks.length) {
+    html += barChart(peaks.map(function(p) { return { label: p.game, value: parseInt(p.peak) || 0 }; }));
   } else {
     html += '<div class="empty">No data yet today</div>';
   }
@@ -261,8 +276,11 @@ async function loadOverview() {
 
   html += '<h2>Recent Snapshots</h2><div class="card scroll-table"><table>';
   html += '<tr><th>ID</th><th>Game</th><th class="num">Players</th><th class="num">Servers</th><th>Time</th></tr>';
-  for (const s of recent) {
-    html += '<tr><td>' + s.id + '</td><td>' + badge(s.game) + '</td><td class="num"><strong>' + s.total_players + '</strong></td><td class="num">' + (s.server_count||0) + '</td><td title="' + fmtDate(s.recorded_at) + '">' + timeAgo(s.recorded_at) + '</td></tr>';
+  if (recent) {
+    for (var i = 0; i < recent.length; i++) {
+      var s = recent[i];
+      html += '<tr><td>' + s.id + '</td><td>' + badge(s.game) + '</td><td class="num"><strong>' + s.total_players + '</strong></td><td class="num">' + (s.server_count||0) + '</td><td title="' + fmtDate(s.recorded_at) + '">' + timeAgo(s.recorded_at) + '</td></tr>';
+    }
   }
   html += '</table></div>';
   document.getElementById('content').innerHTML = html;
@@ -270,20 +288,21 @@ async function loadOverview() {
 
 // ── Per-Game View ──
 async function loadGame(game) {
-  const snaps = await api('/snapshots?game=' + game + '&limit=100');
+  var snaps = await api('/snapshots?game=' + game + '&limit=100');
+  if (!snaps) snaps = [];
 
-  let html = '<h2>' + game.toUpperCase() + ' — Player History</h2>';
+  var html = '<h2>' + game.toUpperCase() + ' — Player History</h2>';
 
   if (snaps.length > 0) {
-    const chartData = snaps.slice().reverse().slice(-60).map(s => ({
-      label: fmtTime(s.recorded_at), value: s.total_players
-    }));
+    var reversed = snaps.slice().reverse().slice(-60);
+    var chartData = reversed.map(function(s) { return { label: fmtTime(s.recorded_at), value: s.total_players }; });
     html += '<div class="card">' + barChart(chartData) + '</div>';
   }
 
   html += '<h2>Snapshots</h2><div class="card scroll-table"><table>';
   html += '<tr><th>ID</th><th class="num">Players</th><th class="num">Servers</th><th>Time</th><th></th></tr>';
-  for (const s of snaps) {
+  for (var i = 0; i < snaps.length; i++) {
+    var s = snaps[i];
     html += '<tr><td>' + s.id + '</td><td class="num"><strong>' + s.total_players + '</strong></td><td class="num">' + (s.server_count||0) + '</td><td title="' + fmtDate(s.recorded_at) + '">' + timeAgo(s.recorded_at) + '</td>';
     html += '<td><a class="clickable" onclick="loadSnapshot(' + s.id + ')">Details</a></td></tr>';
   }
@@ -293,33 +312,38 @@ async function loadGame(game) {
 
 // ── Snapshot Detail ──
 async function loadSnapshot(id) {
-  const data = await api('/snapshot/' + id);
-  let html = '<a class="back-link" onclick="history.back()">← Back</a>';
-  html += '<h2>Snapshot #' + data.id + '</h2>';
-  html += '<div class="meta">' + badge(data.game) + ' &nbsp; ' + fmtDate(data.recorded_at) + ' &nbsp; Total: <strong>' + data.total_players + '</strong> players</div>';
+  var data = await api('/snapshot/' + id);
+  if (!data || !data.id) { document.getElementById('content').innerHTML = '<div class="card empty">Snapshot not found</div>'; return; }
+
+  var html = '<h2>Snapshot #' + data.id + '</h2>';
+  html += '<div class="meta">' + badge(data.game) + ' — ' + fmtDate(data.recorded_at) + ' — Total: <strong>' + data.total_players + '</strong> players</div>';
 
   html += '<div class="card scroll-table"><table>';
   html += '<tr><th>#</th><th>Server ID</th><th>Name</th><th class="num">Players</th><th class="num">API Peak</th><th></th></tr>';
-  (data.servers || []).forEach((s, i) => {
-    html += '<tr><td>' + (i+1) + '</td><td style="font-size:11px;color:#8b949e">' + esc(s.server_id) + '</td><td>' + esc(s.name) + '</td><td class="num"><strong>' + s.players + '</strong></td><td class="num">' + (s.api_peak ?? '—') + '</td>';
-    html += '<td><a class="clickable" onclick="loadServerStats(&apos;' + data.game + '&apos;,&apos;' + esc(s.server_id) + '&apos;)">History</a></td></tr>';
-  });
+  var servers = data.servers || [];
+  for (var i = 0; i < servers.length; i++) {
+    var s = servers[i];
+    var sid = esc(s.server_id);
+    html += '<tr><td>' + (i+1) + '</td><td style="font-size:11px;color:#8b949e">' + sid + '</td><td>' + esc(s.name) + '</td><td class="num"><strong>' + s.players + '</strong></td><td class="num">' + (s.api_peak != null ? s.api_peak : '—') + '</td>';
+    html += '<td><a class="clickable" data-game="' + data.game + '" data-sid="' + sid + '" onclick="loadServerStats(this.dataset.game, this.dataset.sid)">History</a></td></tr>';
+  }
   html += '</table></div>';
   document.getElementById('content').innerHTML = html;
 }
 
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
 // ── Servers List ──
 async function loadServers() {
-  const servers = await api('/servers');
+  var servers = await api('/servers');
+  if (!servers) servers = [];
 
-  let html = '<h2>All Known Servers (' + servers.length + ')</h2>';
+  var html = '<h2>All Known Servers (' + servers.length + ')</h2>';
   html += '<div class="card scroll-table"><table>';
   html += '<tr><th>Game</th><th>Server ID</th><th>Name</th><th class="num">Players</th><th>Last Seen</th><th></th></tr>';
-  for (const s of servers) {
-    html += '<tr><td>' + badge(s.game) + '</td><td style="font-size:11px;color:#8b949e">' + esc(s.server_id) + '</td><td>' + esc(s.name) + '</td><td class="num"><strong>' + s.players + '</strong></td><td>' + timeAgo(s.last_seen) + '</td>';
-    html += '<td><a class="clickable" onclick="loadServerStats(&apos;' + s.game + '&apos;,&apos;' + esc(s.server_id) + '&apos;)">Stats</a></td></tr>';
+  for (var i = 0; i < servers.length; i++) {
+    var s = servers[i];
+    var sid = esc(s.server_id);
+    html += '<tr><td>' + badge(s.game) + '</td><td style="font-size:11px;color:#8b949e">' + sid + '</td><td>' + esc(s.name) + '</td><td class="num"><strong>' + s.players + '</strong></td><td>' + timeAgo(s.last_seen) + '</td>';
+    html += '<td><a class="clickable" data-game="' + s.game + '" data-sid="' + sid + '" onclick="loadServerStats(this.dataset.game, this.dataset.sid)">Stats</a></td></tr>';
   }
   html += '</table></div>';
   document.getElementById('content').innerHTML = html;
@@ -327,36 +351,33 @@ async function loadServers() {
 
 // ── Server Stats ──
 async function loadServerStats(game, serverId) {
-  const data = await api('/server-stats?game=' + encodeURIComponent(game) + '&server_id=' + encodeURIComponent(serverId));
+  var data = await api('/server-stats?game=' + encodeURIComponent(game) + '&server_id=' + encodeURIComponent(serverId));
+  if (!data) { document.getElementById('content').innerHTML = '<div class="card empty">Could not load server stats</div>'; return; }
 
-  let html = '<a class="back-link" onclick="loadServers()">← Back to Servers</a>';
-  html += '<h2>' + badge(game) + ' &nbsp; ' + esc(data.name || serverId) + '</h2>';
+  var html = '<a class="back-link" onclick="loadServers()">Back to Servers</a>';
+  html += '<h2>' + badge(game) + ' ' + esc(data.name || serverId) + '</h2>';
 
-  // Summary stats
   if (data.summary) {
-    const s = data.summary;
+    var sm = data.summary;
     html += '<div class="stats-row">';
-    html += '<div class="stat-card"><div class="label">Current</div><div class="value">' + (s.current ?? '—') + '</div></div>';
-    html += '<div class="stat-card"><div class="label">Peak Today</div><div class="value">' + (s.peak_today ?? '—') + '</div></div>';
-    html += '<div class="stat-card"><div class="label">Peak 24h</div><div class="value">' + (s.peak_24h ?? '—') + '</div></div>';
-    html += '<div class="stat-card"><div class="label">Average 24h</div><div class="value">' + (s.avg_24h ?? '—') + '</div></div>';
+    html += '<div class="stat-card"><div class="label">Current</div><div class="value">' + (sm.current != null ? sm.current : '—') + '</div></div>';
+    html += '<div class="stat-card"><div class="label">Peak Today</div><div class="value">' + (sm.peak_today != null ? sm.peak_today : '—') + '</div></div>';
+    html += '<div class="stat-card"><div class="label">Peak 24h</div><div class="value">' + (sm.peak_24h != null ? sm.peak_24h : '—') + '</div></div>';
+    html += '<div class="stat-card"><div class="label">Average 24h</div><div class="value">' + (sm.avg_24h != null ? sm.avg_24h : '—') + '</div></div>';
     html += '</div>';
   }
 
-  // Chart
   if (data.history && data.history.length > 0) {
     html += '<h2>Player History (24h)</h2><div class="card">';
-    const chartData = data.history.map(h => ({ label: fmtTime(h.recorded_at), value: h.players }));
+    var chartData = data.history.map(function(h) { return { label: fmtTime(h.recorded_at), value: h.players }; });
     html += barChart(chartData);
     html += '</div>';
-  }
 
-  // History table
-  if (data.history && data.history.length > 0) {
     html += '<h2>Raw Data</h2><div class="card scroll-table"><table>';
     html += '<tr><th>Time</th><th class="num">Players</th><th class="num">API Peak</th></tr>';
-    for (const h of data.history) {
-      html += '<tr><td>' + fmtDate(h.recorded_at) + '</td><td class="num"><strong>' + h.players + '</strong></td><td class="num">' + (h.api_peak ?? '—') + '</td></tr>';
+    for (var i = 0; i < data.history.length; i++) {
+      var h = data.history[i];
+      html += '<tr><td>' + fmtDate(h.recorded_at) + '</td><td class="num"><strong>' + h.players + '</strong></td><td class="num">' + (h.api_peak != null ? h.api_peak : '—') + '</td></tr>';
     }
     html += '</table></div>';
   } else {
@@ -367,10 +388,10 @@ async function loadServerStats(game, serverId) {
 }
 
 // ── Init ──
-loadStatus();
-loadStatsRow();
-loadOverview();
-setInterval(() => { loadStatus(); loadStatsRow(); }, 60000);
+loadStatus().catch(function(e) { console.error(e); });
+loadStatsRow().catch(function(e) { console.error(e); });
+loadOverview().catch(function(e) { console.error(e); });
+setInterval(function() { loadStatus(); loadStatsRow(); }, 60000);
 </script>
 </body>
 </html>`);
