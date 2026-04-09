@@ -2,6 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder, ApplicationIntegrationType, Interacti
 const path = require('path');
 const fs = require('fs');
 const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h, getPeakToday, getAllServerPeaksToday, stripLeadingEmoji } = require('../stats');
+const db = require('../db');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'georgian-servers.json');
 const BANNER = 'https://media.discordapp.net/attachments/900441540156067920/1491598397428334592/Gemini_Generated_Image_c0j6elc0j6elc0j6.png?ex=69d846c2&is=69d6f542&hm=4c7e158ff1105a744dced673c222fabaf9f1f62929304b79d23672c6b88ebc4e&=&format=webp&quality=lossless&width=924&height=230';
@@ -70,7 +71,13 @@ async function buildEmbed() {
   }
 
   const online = servers.filter(s => (s.players ?? 0) > 0).length;
-  const serverPeaks = getAllServerPeaksToday('ragemp');
+  const localPeaks = getAllServerPeaksToday('ragemp');
+  const dbPeaks = await db.getServerPeaksToday('ragemp');
+  // Merge: take higher of DB vs local for each server
+  const serverPeaks = new Map(localPeaks);
+  for (const [id, peak] of dbPeaks) {
+    if (peak > (serverPeaks.get(id) || 0)) serverPeaks.set(id, peak);
+  }
 
   const lines = servers.slice(0, 25).map((s, i) => {
     const rank = `\`${String(i + 1).padStart(2, ' ')}\``;

@@ -185,4 +185,29 @@ async function getDailyPeaks(days = 7) {
   }
 }
 
-module.exports = { init, isConnected, recordSnapshot, getPeakToday, getCombinedPeakToday, getDailyPeaks, cleanup, getPool: () => pool };
+/**
+ * Per-server peak players today from DB, keyed by server_id.
+ * Returns a Map<string, number>.
+ */
+async function getServerPeaksToday(game) {
+  if (!pool) return new Map();
+  try {
+    const { rows } = await pool.query(
+      `SELECT sr.server_id, MAX(sr.players) AS peak
+       FROM server_records sr
+       JOIN snapshots s ON sr.snapshot_id = s.id
+       WHERE s.game = $1
+         AND s.recorded_at >= (NOW() AT TIME ZONE 'Asia/Tbilisi')::date AT TIME ZONE 'Asia/Tbilisi'
+       GROUP BY sr.server_id`,
+      [game]
+    );
+    const map = new Map();
+    for (const r of rows) map.set(r.server_id, Number(r.peak));
+    return map;
+  } catch (err) {
+    console.error('[db] getServerPeaksToday error:', err.message);
+    return new Map();
+  }
+}
+
+module.exports = { init, isConnected, recordSnapshot, getPeakToday, getCombinedPeakToday, getDailyPeaks, getServerPeaksToday, cleanup, getPool: () => pool };

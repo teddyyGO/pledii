@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, ApplicationIntegrationType, InteractionContextType } = require('discord.js');
 const dgram = require('dgram');
 const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h, getPeakToday, getAllServerPeaksToday } = require('../stats');
+const db = require('../db');
 
 const SERVER_HOST = '185.169.134.100';
 const SERVER_PORT = 7777;
@@ -95,7 +96,12 @@ async function buildEmbed() {
 
   const dot = data.players === 0 ? '⚫' : '🟢';
   const ts = Math.floor(Date.now() / 1000);
-  const serverPeaks = getAllServerPeaksToday('samp');
+  const localPeaks = getAllServerPeaksToday('samp');
+  const dbPeaks = await db.getServerPeaksToday('samp');
+  const serverPeaks = new Map(localPeaks);
+  for (const [id, peak] of dbPeaks) {
+    if (peak > (serverPeaks.get(id) || 0)) serverPeaks.set(id, peak);
+  }
   const serverPeak = serverPeaks.get(`${SERVER_HOST}:${SERVER_PORT}`) || 0;
   const peakStr = serverPeak > 0 ? ` (პიკი: ${serverPeak})` : '';
 

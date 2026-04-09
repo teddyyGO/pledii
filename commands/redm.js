@@ -2,6 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder, ApplicationIntegrationType, Interacti
 const path = require('path');
 const fs = require('fs');
 const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h, getPeakToday, getAllServerPeaksToday, stripLeadingEmoji } = require('../stats');
+const db = require('../db');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'georgian-servers.json');
 const BANNER = 'https://media.discordapp.net/attachments/927693311039402025/1490002133687468114/image.png';
@@ -114,7 +115,12 @@ async function buildEmbed() {
   }
 
   const online = servers.filter(s => s.clients > 0).length;
-  const serverPeaks = getAllServerPeaksToday('redm');
+  const localPeaks = getAllServerPeaksToday('redm');
+  const dbPeaks = await db.getServerPeaksToday('redm');
+  const serverPeaks = new Map(localPeaks);
+  for (const [id, peak] of dbPeaks) {
+    if (peak > (serverPeaks.get(id) || 0)) serverPeaks.set(id, peak);
+  }
 
   const lines = servers.slice(0, 25).map((s, i) => {
     const rank = `\`${String(i + 1).padStart(2, ' ')}\``;
