@@ -195,6 +195,7 @@ app.get('/', (req, res) => {
   <a class="tab" data-tab="redm">RedM</a>
   <a class="tab" data-tab="samp">SA-MP</a>
   <a class="tab" data-tab="servers">Servers</a>
+  <a class="tab" data-tab="database">Database</a>
 </div>
 
 <div id="content"></div>
@@ -220,6 +221,7 @@ document.querySelectorAll('.tab').forEach(function(tab) {
     var name = tab.dataset.tab;
     if (name === 'overview') loadOverview();
     else if (name === 'servers') loadServers();
+    else if (name === 'database') loadDatabase();
     else loadGame(name);
   });
 });
@@ -338,8 +340,19 @@ async function loadStatsRow() {
 async function loadOverview() {
   var peaks = await api('/peaks-today');
   var recent = await api('/snapshots?limit=30');
+  var combined = await api('/combined-history');
 
-  var html = '<h2>Peaks Today</h2><div class="card">';
+  var html = '';
+
+  // Combined all-games chart
+  if (combined && combined.length > 1) {
+    html += '<h2>Combined Player Count (24h)</h2><div class="card">';
+    var chartData = combined.map(function(c) { return { label: fmtTime(c.time), value: c.total }; });
+    html += areaChart(chartData, 200, '#d2a8ff');
+    html += '</div>';
+  }
+
+  html += '<h2>Peaks Today</h2><div class="card">';
   if (peaks && peaks.length) {
     html += peakBars(peaks.map(function(p) { return { label: p.game, value: parseInt(p.peak) || 0 }; }));
   } else {
@@ -363,6 +376,7 @@ async function loadOverview() {
 async function loadGame(game) {
   var snaps = await api('/snapshots?game=' + game + '&limit=200');
   if (!snaps) snaps = [];
+  var gameServers = await api('/game-servers?game=' + game);
 
   var html = '<h2>' + game.toUpperCase() + ' — Player History (24h)</h2>';
 
@@ -373,6 +387,23 @@ async function loadGame(game) {
     html += '<div class="card">' + areaChart(chartData, 200, colors[game] || '#3fb950') + '</div>';
   } else {
     html += '<div class="card empty">No snapshots recorded yet</div>';
+  }
+
+  // Server list for this game
+  if (gameServers && gameServers.length > 0) {
+    html += '<h2>Servers (' + gameServers.length + ')</h2>';
+    html += '<div class="card scroll-table"><table>';
+    html += '<tr><th>Server</th><th class="num">Current</th><th class="num">Peak Today</th><th>Last Seen</th><th></th></tr>';
+    for (var j = 0; j < gameServers.length; j++) {
+      var sv = gameServers[j];
+      var sid = esc(sv.server_id);
+      html += '<tr><td><strong>' + esc(sv.name) + '</strong><br><span style="font-size:11px;color:#484f58">' + sid + '</span></td>';
+      html += '<td class="num"><strong>' + sv.players + '</strong></td>';
+      html += '<td class="num">' + (sv.peak_today != null ? sv.peak_today : '—') + '</td>';
+      html += '<td>' + timeAgo(sv.last_seen) + '</td>';
+      html += '<td><a class="clickable" data-game="' + game + '" data-sid="' + sid + '" onclick="loadServerStats(this.dataset.game, this.dataset.sid)">Stats</a></td></tr>';
+    }
+    html += '</table></div>';
   }
 
   html += '<h2>Snapshots</h2><div class="card scroll-table"><table>';
@@ -520,11 +551,70 @@ async function loadServerStats(game, serverId, hours) {
   document.getElementById('content').innerHTML = html;
 }
 
+// ── Database View ──
+async function loadDatabase() {
+  var info = await api('/db-info');
+  if (!info || !info.connected) {
+    document.getElementById('content').innerHTML = '<div class="card empty">Database not connected</div>';
+    return;
+  }
+
+  var html = '<h2>Database Health</h2><div class="stats-row">';
+  html += '<div class="stat-card"><div class="label">Status</div><div class="value" style="font-size:18px;color:#3fb950">Connected</div></div>';
+  html += '<div class="stat-card"><div class="label">Snapshots</div><div class="value">' + (info.snapshots || 0).toLocaleString() + '</div></div>';
+  html += '<div class="stat-card"><div class="label">Server Records</div><div class="value">' + (info.server_records || 0).toLocaleString() + '</div></div>';
+  html += '<div class="stat-card"><div class="label">DB Size</div><div class="value" style="font-size:18px">' + (info.db_size || '?') + '</div></div>';
+  html += '<div class="stat-card"><div class="label">Oldest Snapshot</div><div class="value" style="font-size:14px">' + (info.oldest ? fmtDate(info.oldest) : '—') + '</div></div>';
+  html += '<div class="stat-card"><div class="label">Newest Snapshot</div><div class="value" style="font-size:14px">' + (info.newest ? fmtDate(info.newest) : '—') + '</div></div>';
+  html += '</div>';
+
+  // Per-game breakdown
+  if (info.games && info.games.length > 0) {
+    html += '<h2>Per-Game Breakdown</h2><div class="card"><table>';
+    html += '<tr><th>Game</th><th class="num">Snapshots</th><th class="num">Server Records</th><th>Oldest</th><th>Newest</th></tr>';
+    for (var i = 0; i < info.games.length; i++) {
+      var g = info.games[i];
+      html += '<tr><td>' + badge(g.game) + '</td><td class="num">' + g.snapshots + '</td><td class="num">' + g.server_records + '</td>';
+      html += '<td>' + (g.oldest ? fmtDate(g.oldest) : '—') + '</td><td>' + (g.newest ? fmtDate(g.newest) : '—') + '</td></tr>';
+    }
+    html += '</table></div>';
+  }
+
+  // Table sizes
+  if (info.table_sizes && info.table_sizes.length > 0) {
+    html += '<h2>Table Sizes</h2><div class="card"><table>';
+    html += '<tr><th>Table</th><th class="num">Rows</th><th class="num">Size</th><th class="num">Index Size</th></tr>';
+    for (var j = 0; j < info.table_sizes.length; j++) {
+      var t = info.table_sizes[j];
+      html += '<tr><td><strong>' + esc(t.table) + '</strong></td><td class="num">' + Number(t.rows).toLocaleString() + '</td><td class="num">' + t.size + '</td><td class="num">' + t.index_size + '</td></tr>';
+    }
+    html += '</table></div>';
+  }
+
+  document.getElementById('content').innerHTML = html;
+}
+
+// ── Auto-refresh ──
+var autoRefreshTimer = null;
+function startAutoRefresh() {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(function() {
+    var active = document.querySelector('.tab.active');
+    if (!active) return;
+    var name = active.dataset.tab;
+    // Only auto-refresh overview and per-game views (not server stats / database)
+    if (name === 'overview') { loadOverview(); loadStatsRow(); }
+    else if (name === 'servers') loadServers();
+    else if (['ragemp','redm','samp'].indexOf(name) !== -1) loadGame(name);
+    loadStatus();
+  }, 60000);
+}
+
 // ── Init ──
 loadStatus().catch(function(e) { console.error(e); });
 loadStatsRow().catch(function(e) { console.error(e); });
 loadOverview().catch(function(e) { console.error(e); });
-setInterval(function() { loadStatus(); loadStatsRow(); }, 60000);
+startAutoRefresh();
 </script>
 </body>
 </html>`);
@@ -664,83 +754,79 @@ app.get('/api/server-stats', async (req, res) => {
   if (!game || !server_id) return res.status(400).json({ error: 'game and server_id required' });
 
   try {
-    // Latest name
-    const { rows: nameRows } = await pool.query(`
-      SELECT sr.name FROM server_records sr
-      JOIN snapshots s ON s.id = sr.snapshot_id
-      WHERE s.game = $1 AND sr.server_id = $2
-      ORDER BY s.recorded_at DESC LIMIT 1
-    `, [game, server_id]);
+    // Run all queries in parallel for speed
+    const [
+      { rows: nameRows },
+      { rows: history },
+      { rows: [summary24] },
+      { rows: [summary7d] },
+      { rows: [peakToday] },
+      { rows: [allTimePeak] },
+      { rows: dailyPeaks },
+      { rows: [uptime24] }
+    ] = await Promise.all([
+      // Latest name
+      pool.query(`
+        SELECT sr.name FROM server_records sr
+        JOIN snapshots s ON s.id = sr.snapshot_id
+        WHERE s.game = $1 AND sr.server_id = $2
+        ORDER BY s.recorded_at DESC LIMIT 1
+      `, [game, server_id]),
 
-    // History for requested timeframe
-    const { rows: history } = await pool.query(`
-      SELECT sr.players, sr.api_peak, s.recorded_at
-      FROM server_records sr
-      JOIN snapshots s ON s.id = sr.snapshot_id
-      WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - make_interval(hours => $3)
-      ORDER BY s.recorded_at ASC
-    `, [game, server_id, hours]);
+      // History for requested timeframe
+      pool.query(`
+        SELECT sr.players, sr.api_peak, s.recorded_at
+        FROM server_records sr
+        JOIN snapshots s ON s.id = sr.snapshot_id
+        WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - make_interval(hours => $3)
+        ORDER BY s.recorded_at ASC
+      `, [game, server_id, hours]),
 
-    // 24h summary
-    const { rows: [summary24] } = await pool.query(`
-      SELECT
-        MAX(sr.players) AS peak,
-        ROUND(AVG(sr.players))::int AS avg,
-        MIN(sr.players) AS min
-      FROM server_records sr
-      JOIN snapshots s ON s.id = sr.snapshot_id
-      WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - INTERVAL '24 hours'
-    `, [game, server_id]);
+      // 24h summary
+      pool.query(`
+        SELECT MAX(sr.players) AS peak, ROUND(AVG(sr.players))::int AS avg, MIN(sr.players) AS min
+        FROM server_records sr JOIN snapshots s ON s.id = sr.snapshot_id
+        WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - INTERVAL '24 hours'
+      `, [game, server_id]),
 
-    // 7d summary
-    const { rows: [summary7d] } = await pool.query(`
-      SELECT
-        MAX(sr.players) AS peak,
-        ROUND(AVG(sr.players))::int AS avg,
-        MIN(sr.players) AS min
-      FROM server_records sr
-      JOIN snapshots s ON s.id = sr.snapshot_id
-      WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - INTERVAL '7 days'
-    `, [game, server_id]);
+      // 7d summary
+      pool.query(`
+        SELECT MAX(sr.players) AS peak, ROUND(AVG(sr.players))::int AS avg, MIN(sr.players) AS min
+        FROM server_records sr JOIN snapshots s ON s.id = sr.snapshot_id
+        WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - INTERVAL '7 days'
+      `, [game, server_id]),
 
-    // Peak today
-    const { rows: [peakToday] } = await pool.query(`
-      SELECT MAX(sr.players) AS peak
-      FROM server_records sr
-      JOIN snapshots s ON s.id = sr.snapshot_id
-      WHERE s.game = $1 AND sr.server_id = $2
-        AND s.recorded_at >= (NOW() AT TIME ZONE 'Asia/Tbilisi')::date AT TIME ZONE 'Asia/Tbilisi'
-    `, [game, server_id]);
+      // Peak today
+      pool.query(`
+        SELECT MAX(sr.players) AS peak
+        FROM server_records sr JOIN snapshots s ON s.id = sr.snapshot_id
+        WHERE s.game = $1 AND sr.server_id = $2
+          AND s.recorded_at >= (NOW() AT TIME ZONE 'Asia/Tbilisi')::date AT TIME ZONE 'Asia/Tbilisi'
+      `, [game, server_id]),
 
-    // All-time peak
-    const { rows: [allTimePeak] } = await pool.query(`
-      SELECT MAX(sr.players) AS peak
-      FROM server_records sr
-      JOIN snapshots s ON s.id = sr.snapshot_id
-      WHERE s.game = $1 AND sr.server_id = $2
-    `, [game, server_id]);
+      // All-time peak
+      pool.query(`
+        SELECT MAX(sr.players) AS peak
+        FROM server_records sr JOIN snapshots s ON s.id = sr.snapshot_id
+        WHERE s.game = $1 AND sr.server_id = $2
+      `, [game, server_id]),
 
-    // Daily peaks (last 7 days, per Georgian day)
-    const { rows: dailyPeaks } = await pool.query(`
-      SELECT
-        (s.recorded_at AT TIME ZONE 'Asia/Tbilisi')::date AS day,
-        MAX(sr.players) AS peak
-      FROM server_records sr
-      JOIN snapshots s ON s.id = sr.snapshot_id
-      WHERE s.game = $1 AND sr.server_id = $2
-        AND s.recorded_at >= ((NOW() AT TIME ZONE 'Asia/Tbilisi')::date - INTERVAL '7 days') AT TIME ZONE 'Asia/Tbilisi'
-      GROUP BY day ORDER BY day DESC
-    `, [game, server_id]);
+      // Daily peaks (last 7 days, per Georgian day)
+      pool.query(`
+        SELECT (s.recorded_at AT TIME ZONE 'Asia/Tbilisi')::date AS day, MAX(sr.players) AS peak
+        FROM server_records sr JOIN snapshots s ON s.id = sr.snapshot_id
+        WHERE s.game = $1 AND sr.server_id = $2
+          AND s.recorded_at >= ((NOW() AT TIME ZONE 'Asia/Tbilisi')::date - INTERVAL '7 days') AT TIME ZONE 'Asia/Tbilisi'
+        GROUP BY day ORDER BY day DESC
+      `, [game, server_id]),
 
-    // Uptime % (24h) — minutes with at least 1 player
-    const { rows: [uptime24] } = await pool.query(`
-      SELECT
-        COUNT(*) FILTER (WHERE sr.players > 0) AS active,
-        COUNT(*) AS total
-      FROM server_records sr
-      JOIN snapshots s ON s.id = sr.snapshot_id
-      WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - INTERVAL '24 hours'
-    `, [game, server_id]);
+      // Uptime % (24h)
+      pool.query(`
+        SELECT COUNT(*) FILTER (WHERE sr.players > 0) AS active, COUNT(*) AS total
+        FROM server_records sr JOIN snapshots s ON s.id = sr.snapshot_id
+        WHERE s.game = $1 AND sr.server_id = $2 AND s.recorded_at >= NOW() - INTERVAL '24 hours'
+      `, [game, server_id])
+    ]);
 
     const current = history.length > 0 ? history[history.length - 1].players : null;
     const uptimePct = uptime24?.total > 0 ? Math.round((uptime24.active / uptime24.total) * 100) : null;
@@ -763,6 +849,116 @@ app.get('/api/server-stats', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/combined-history', async (req, res) => {
+  const pool = db.getPool();
+  if (!pool) return res.json([]);
+
+  try {
+    const { rows } = await pool.query(`
+      SELECT date_trunc('minute', recorded_at) AS time,
+             SUM(total_players) AS total
+      FROM snapshots
+      WHERE game IN ('ragemp', 'redm', 'samp')
+        AND recorded_at >= NOW() - INTERVAL '24 hours'
+      GROUP BY time ORDER BY time ASC
+    `);
+    res.json(rows.map(r => ({ time: r.time, total: Number(r.total) })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/game-servers', async (req, res) => {
+  const pool = db.getPool();
+  if (!pool) return res.json([]);
+
+  const game = req.query.game;
+  if (!game) return res.status(400).json({ error: 'game required' });
+
+  try {
+    const { rows } = await pool.query(`
+      WITH latest AS (
+        SELECT DISTINCT ON (sr.server_id)
+               sr.server_id, sr.name, sr.players, s.recorded_at AS last_seen
+        FROM server_records sr
+        JOIN snapshots s ON s.id = sr.snapshot_id
+        WHERE s.game = $1
+        ORDER BY sr.server_id, s.recorded_at DESC
+      ),
+      peaks AS (
+        SELECT sr.server_id, MAX(sr.players) AS peak_today
+        FROM server_records sr
+        JOIN snapshots s ON s.id = sr.snapshot_id
+        WHERE s.game = $1
+          AND s.recorded_at >= (NOW() AT TIME ZONE 'Asia/Tbilisi')::date AT TIME ZONE 'Asia/Tbilisi'
+        GROUP BY sr.server_id
+      )
+      SELECT l.server_id, l.name, l.players, l.last_seen, p.peak_today
+      FROM latest l
+      LEFT JOIN peaks p ON p.server_id = l.server_id
+      ORDER BY l.players DESC, l.last_seen DESC
+    `, [game]);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/db-info', async (req, res) => {
+  const pool = db.getPool();
+  if (!pool) return res.json({ connected: false });
+
+  try {
+    const [
+      { rows: [counts] },
+      { rows: [dbSize] },
+      { rows: [timeRange] },
+      { rows: games },
+      { rows: tableSizes }
+    ] = await Promise.all([
+      pool.query(`
+        SELECT
+          (SELECT COUNT(*)::int FROM snapshots) AS snapshots,
+          (SELECT COUNT(*)::int FROM server_records) AS server_records
+      `),
+      pool.query(`SELECT pg_size_pretty(pg_database_size(current_database())) AS size`),
+      pool.query(`SELECT MIN(recorded_at) AS oldest, MAX(recorded_at) AS newest FROM snapshots`),
+      pool.query(`
+        SELECT s.game,
+               COUNT(DISTINCT s.id)::int AS snapshots,
+               COUNT(sr.id)::int AS server_records,
+               MIN(s.recorded_at) AS oldest,
+               MAX(s.recorded_at) AS newest
+        FROM snapshots s
+        LEFT JOIN server_records sr ON sr.snapshot_id = s.id
+        GROUP BY s.game ORDER BY s.game
+      `),
+      pool.query(`
+        SELECT relname AS table,
+               n_live_tup AS rows,
+               pg_size_pretty(pg_total_relation_size(relid)) AS size,
+               pg_size_pretty(pg_indexes_size(relid)) AS index_size
+        FROM pg_stat_user_tables
+        WHERE schemaname = 'public'
+        ORDER BY pg_total_relation_size(relid) DESC
+      `)
+    ]);
+
+    res.json({
+      connected: true,
+      snapshots: counts.snapshots,
+      server_records: counts.server_records,
+      db_size: dbSize.size,
+      oldest: timeRange.oldest,
+      newest: timeRange.newest,
+      games,
+      table_sizes: tableSizes
+    });
+  } catch (err) {
+    res.status(500).json({ connected: true, error: err.message });
   }
 });
 

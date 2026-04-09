@@ -9,14 +9,18 @@ const BLOCKS = '▁▂▃▄▅▆▇█';
 
 const lastRecorded = { ragemp: 0, redm: 0, samp: 0, total: 0 };
 
-// Schema — maps directly to DB tables when migrating:
-//
-// snapshots:      id, game, timestamp, total_players
-// server_records: snapshot_id, server_id, name, players, api_peak?
+// In-memory cache to avoid re-reading stats.json on every call
+let _cache = null;
+let _cacheMtime = 0;
 
 function loadStats() {
   try {
-    return JSON.parse(fs.readFileSync(STATS_PATH, 'utf8'));
+    const stat = fs.statSync(STATS_PATH);
+    const mtime = stat.mtimeMs;
+    if (_cache && mtime === _cacheMtime) return _cache;
+    _cache = JSON.parse(fs.readFileSync(STATS_PATH, 'utf8'));
+    _cacheMtime = mtime;
+    return _cache;
   } catch {
     return { snapshots: [] };
   }
@@ -24,6 +28,9 @@ function loadStats() {
 
 function saveStats(stats) {
   fs.writeFileSync(STATS_PATH, JSON.stringify(stats));
+  // Update cache immediately so next read doesn't hit disk
+  _cache = stats;
+  try { _cacheMtime = fs.statSync(STATS_PATH).mtimeMs; } catch {}
 }
 
 function nextId(snapshots) {

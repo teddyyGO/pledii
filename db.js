@@ -40,6 +40,8 @@ async function init() {
 
     CREATE INDEX IF NOT EXISTS idx_snapshots_game_time ON snapshots(game, recorded_at);
     CREATE INDEX IF NOT EXISTS idx_server_records_snapshot ON server_records(snapshot_id);
+    CREATE INDEX IF NOT EXISTS idx_server_records_server_id ON server_records(server_id);
+    CREATE INDEX IF NOT EXISTS idx_server_records_snap_server ON server_records(snapshot_id, server_id);
   `);
 
   console.log('[db] Connected and schema ready');
