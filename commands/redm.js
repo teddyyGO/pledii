@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, ApplicationIntegrationType, InteractionContextType } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
-const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h } = require('../stats');
+const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h, getPeakToday } = require('../stats');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'georgian-servers.json');
 const BANNER = 'https://media.discordapp.net/attachments/927693311039402025/1490002133687468114/image.png';
@@ -128,11 +128,13 @@ async function buildEmbed() {
 
   const sparkline = generateSparkline(getTotalHistory('redm'));
   const peak = getPeak24h('redm');
+  const todayPeak = getPeakToday('redm');
 
-  if (sparkline || peak) {
+  if (sparkline || peak || todayPeak) {
     const parts = [];
     if (sparkline) parts.push(`\`${sparkline}\``);
     if (peak) parts.push(`პიკი: **${peak.p}** <t:${peak.t}:t>`);
+    if (todayPeak) parts.push(`დღის პიკი: **${todayPeak.p}** <t:${todayPeak.t}:t>`);
     embed.addFields([{ name: '📊 24h', value: parts.join('  '), inline: false }]);
   }
 

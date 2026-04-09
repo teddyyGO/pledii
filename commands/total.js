@@ -1,5 +1,5 @@
 const { EmbedBuilder } = require('discord.js');
-const { getLatestSnapshot } = require('../stats');
+const { getLatestSnapshot, getPeakToday } = require('../stats');
 
 const PLATFORMS = [
   { key: 'ragemp', label: 'RageMP' },
@@ -12,13 +12,18 @@ async function buildEmbed() {
     const snap = getLatestSnapshot(key);
     const players = snap?.total_players ?? 0;
     const dot = players > 0 ? '🟩' : '⬛';
-    return { label, players, dot };
+    const peak = getPeakToday(key);
+    return { label, players, dot, peak };
   });
 
   const total = rows.reduce((sum, r) => sum + r.players, 0);
   const ts = Math.floor(Date.now() / 1000);
 
-  const lines = rows.map(r => `${r.dot} **${r.label}** — ${r.players} მოთამაშე`);
+  const lines = rows.map(r => {
+    let line = `${r.dot} **${r.label}** — ${r.players} მოთამაშე`;
+    if (r.peak) line += ` (პიკი: ${r.peak.p})`;
+    return line;
+  });
 
   const embed = new EmbedBuilder()
     .setTitle('🇬🇪 სულ ონლაინ — ყველა პლატფორმა')

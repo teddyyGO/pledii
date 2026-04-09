@@ -1,12 +1,13 @@
 const fs = require('fs');
 const path = require('path');
+const db = require('./db');
 
 const STATS_PATH = path.join(__dirname, 'stats.json');
 const MAX_AGE_SECONDS = 7 * 86400;      // keep 7 days
-const RECORD_INTERVAL = 5 * 60 * 1000; // record at most every 5 minutes
+const RECORD_INTERVAL = 60 * 1000;      // record every minute
 const BLOCKS = '▁▂▃▄▅▆▇█';
 
-const lastRecorded = { ragemp: 0, redm: 0 };
+const lastRecorded = { ragemp: 0, redm: 0, samp: 0 };
 
 // Schema — maps directly to DB tables when migrating:
 //
@@ -63,6 +64,9 @@ function recordSnapshot(game, servers, totalPlayers) {
   stats.snapshots = stats.snapshots.filter(s => s.timestamp >= cutoff);
 
   saveStats(stats);
+
+  // Also record to database if connected
+  db.recordSnapshot(game, servers, totalPlayers).catch(err => console.error('[db]', err.message));
 }
 
 function getSnapshots(game, hours = 24) {
@@ -176,6 +180,25 @@ function getPeak24h(game) {
   return history.reduce((max, e) => (e.p > max.p ? e : max), history[0]);
 }
 
+/** Peak for today (since midnight Georgian time UTC+4). */
+function getPeakToday(game) {
+  const now = Date.now();
+  const GEORGIAN_OFFSET = 4 * 3600 * 1000;
+  const georgianNow = new Date(now + GEORGIAN_OFFSET);
+  const midnightGeorgian = Date.UTC(
+    georgianNow.getUTCFullYear(),
+    georgianNow.getUTCMonth(),
+    georgianNow.getUTCDate()
+  );
+  const cutoff = Math.floor((midnightGeorgian - GEORGIAN_OFFSET) / 1000);
+
+  const snaps = loadStats().snapshots.filter(s => s.game === game && s.timestamp >= cutoff);
+  if (snaps.length === 0) return null;
+
+  const history = snaps.map(s => ({ t: s.timestamp, p: s.total_players }));
+  return history.reduce((max, e) => (e.p > max.p ? e : max), history[0]);
+}
+
 /** Daily summary for /summary overview. */
 function getDailySummary(game) {
   return getGameSummary(game, 24);
@@ -206,5 +229,6 @@ module.exports = {
   getServerApiPeak,
   generateSparkline,
   getPeak24h,
+  getPeakToday,
   getDailySummary
 };

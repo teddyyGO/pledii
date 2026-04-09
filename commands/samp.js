@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, ApplicationIntegrationType, InteractionContextType } = require('discord.js');
 const dgram = require('dgram');
-const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h } = require('../stats');
+const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h, getPeakToday } = require('../stats');
 
 const SERVER_HOST = '185.169.134.100';
 const SERVER_PORT = 7777;
@@ -100,11 +100,13 @@ async function buildEmbed() {
 
   const sparkline = generateSparkline(getTotalHistory('samp'));
   const peak = getPeak24h('samp');
+  const todayPeak = getPeakToday('samp');
 
-  if (sparkline || peak) {
+  if (sparkline || peak || todayPeak) {
     const parts = [];
     if (sparkline) parts.push(`\`${sparkline}\``);
     if (peak) parts.push(`პიკი: **${peak.p}** <t:${peak.t}:t>`);
+    if (todayPeak) parts.push(`დღის პიკი: **${todayPeak.p}** <t:${todayPeak.t}:t>`);
     embed.addFields([{ name: '📊 24h', value: parts.join('  '), inline: false }]);
   }
 
