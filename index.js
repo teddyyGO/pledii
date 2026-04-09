@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { Client, GatewayIntentBits, Events, Collection } = require('discord.js');
 const db = require('./db');
+const { startAdmin } = require('./admin');
 require('dotenv').config();
 
 const CONFIG_PATH = path.join(__dirname, 'georgian-servers.json');
@@ -74,6 +75,9 @@ client.once(Events.ClientReady, async readyClient => {
   console.log(`✅ Logged in as ${readyClient.user.tag}`);
 
   await db.init();
+
+  // Start admin panel web server
+  startAdmin();
 
   // Clean up old DB entries daily
   setInterval(() => db.cleanup(), 24 * 60 * 60 * 1000);

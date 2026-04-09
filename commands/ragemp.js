@@ -4,6 +4,7 @@ const fs = require('fs');
 const { recordSnapshot, getTotalHistory, generateSparkline, getPeak24h, getPeakToday } = require('../stats');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'georgian-servers.json');
+const BANNER = 'https://media.discordapp.net/attachments/900441540156067920/1491598397428334592/Gemini_Generated_Image_c0j6elc0j6elc0j6.png?ex=69d846c2&is=69d6f542&hm=4c7e158ff1105a744dced673c222fabaf9f1f62929304b79d23672c6b88ebc4e&=&format=webp&quality=lossless&width=924&height=230';
 
 let cache = { data: null, timestamp: 0 };
 const CACHE_TTL = 30_000;
@@ -61,6 +62,7 @@ async function buildEmbed() {
   const embed = new EmbedBuilder()
     .setTitle('🇬🇪 ქართული RageMP სერვერები')
     .setColor(0x8B0000)
+    .setImage(BANNER)
     .setTimestamp();
 
   if (servers.length === 0) {

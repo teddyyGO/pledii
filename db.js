@@ -126,4 +126,4 @@ async function cleanup(daysToKeep = 90) {
   }
 }
 
-module.exports = { init, isConnected, recordSnapshot, getPeakToday, cleanup };
+module.exports = { init, isConnected, recordSnapshot, getPeakToday, cleanup, getPool: () => pool };
