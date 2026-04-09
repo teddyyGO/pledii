@@ -118,15 +118,15 @@ app.get('/', (req, res) => {
   .err { background: #2d1117; border: 1px solid #da3633; }
 
   /* Stats row */
-  .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
   .stat-card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 16px; }
-  .stat-card .label { color: #8b949e; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .label { color: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
   .stat-card .value { color: #f0f6fc; font-size: 28px; font-weight: 700; margin: 4px 0; }
-  .stat-card .sub { color: #8b949e; font-size: 12px; }
+  .stat-card .sub { color: #8b949e; font-size: 11px; }
   .stat-card .peak { color: #3fb950; font-size: 13px; }
 
   /* Tabs */
-  .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid #21262d; padding-bottom: 0; }
+  .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid #21262d; }
   .tab { padding: 10px 18px; color: #8b949e; cursor: pointer; text-decoration: none; font-size: 14px; border-bottom: 2px solid transparent; transition: all 0.15s; }
   .tab:hover { color: #c9d1d9; }
   .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
@@ -143,31 +143,36 @@ app.get('/', (req, res) => {
   .clickable { color: #58a6ff; cursor: pointer; text-decoration: none; }
   .clickable:hover { text-decoration: underline; }
 
-  /* Bar chart */
-  .chart { padding: 8px 0; }
-  .chart-bar { background: linear-gradient(90deg, #238636, #3fb950); height: 20px; border-radius: 4px; min-width: 2px; transition: width 0.3s; }
-  .chart-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
-  .chart-label { font-size: 11px; color: #8b949e; min-width: 55px; text-align: right; }
-  .chart-val { font-size: 12px; color: #c9d1d9; min-width: 35px; font-weight: 600; }
-
   /* Misc */
   .meta { color: #8b949e; font-size: 12px; margin: 6px 0; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
   .badge-ragemp { background: #1a3a1a; color: #3fb950; }
   .badge-redm { background: #3a1a1a; color: #f85149; }
   .badge-samp { background: #1a2a3a; color: #58a6ff; }
-  select, input[type=text] { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; padding: 8px 12px; border-radius: 8px; font-size: 13px; outline: none; }
-  select:focus, input[type=text]:focus { border-color: #58a6ff; }
   .empty { color: #484f58; text-align: center; padding: 40px; font-size: 14px; }
   .back-link { color: #58a6ff; font-size: 13px; cursor: pointer; margin-bottom: 12px; display: inline-block; }
   .back-link:hover { text-decoration: underline; }
+
+  /* SVG Chart */
+  .chart-container { position: relative; width: 100%; }
+  .chart-container svg { width: 100%; display: block; }
+  .chart-info { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+  .chart-info span { font-size: 11px; color: #484f58; }
+  .chart-peak { color: #3fb950 !important; font-weight: 600; }
+
+  /* Vertical Bar chart - for peaks comparison */
+  .bars { display: flex; gap: 12px; align-items: flex-end; justify-content: center; }
+  .bar-item { flex: 1; text-align: center; max-width: 120px; }
+  .bar-fill { background: linear-gradient(180deg, #3fb950, #238636); border-radius: 4px 4px 0 0; min-height: 4px; transition: height 0.3s; margin: 0 auto; max-width: 80px; }
+  .bar-label { font-size: 11px; color: #8b949e; margin-top: 6px; }
+  .bar-value { font-size: 14px; color: #f0f6fc; font-weight: 700; margin-bottom: 4px; }
 </style>
 </head>
 <body>
 <div class="container">
 
 <div class="header">
-  <h1>🎮 Pledii Admin</h1>
+  <h1>Pledii Admin</h1>
   <a href="/logout">Logout</a>
 </div>
 
@@ -188,8 +193,8 @@ app.get('/', (req, res) => {
 <script>
 async function api(path) {
   try {
-    const sep = path.includes('?') ? '&' : '?';
-    const r = await fetch('/api' + path + sep + '_=' + Date.now());
+    var sep = path.includes('?') ? '&' : '?';
+    var r = await fetch('/api' + path + sep + '_=' + Date.now());
     if (r.status === 401) { window.location = '/login'; return null; }
     if (!r.ok) return null;
     return await r.json();
@@ -222,13 +227,71 @@ function badge(game) { return '<span class="badge badge-' + game + '">' + game +
 
 function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-function barChart(data) {
-  var maxVal = Math.max.apply(null, data.map(function(d){ return d.value; }).concat([1]));
-  return '<div class="chart">' + data.map(function(d) {
-    var pct = Math.max((d.value / maxVal * 100), 0.5).toFixed(1);
-    return '<div class="chart-row"><span class="chart-label">' + d.label +
-      '</span><div class="chart-bar" style="width:' + pct + '%"></div><span class="chart-val">' + d.value + '</span></div>';
-  }).join('') + '</div>';
+// ── SVG Area Chart ──
+function areaChart(data, height, color) {
+  if (!data || !data.length) return '<div class="empty">No data</div>';
+  height = height || 160;
+  color = color || '#3fb950';
+
+  var W = 800, H = height, PAD_L = 45, PAD_R = 10, PAD_T = 10, PAD_B = 24;
+  var cw = W - PAD_L - PAD_R, ch = H - PAD_T - PAD_B;
+  var vals = data.map(function(d) { return d.value; });
+  var maxVal = Math.max.apply(null, vals.concat([1]));
+  var minVal = Math.min.apply(null, vals);
+  var peakIdx = vals.indexOf(maxVal);
+  var range = maxVal - minVal || 1;
+
+  function x(i) { return PAD_L + (i / Math.max(data.length - 1, 1)) * cw; }
+  function y(v) { return PAD_T + ch - ((v - minVal) / range) * ch; }
+
+  var linePts = data.map(function(d, i) { return x(i).toFixed(1) + ',' + y(d.value).toFixed(1); });
+  var lineD = 'M' + linePts.join('L');
+  var areaD = lineD + 'L' + x(data.length - 1).toFixed(1) + ',' + (PAD_T + ch) + 'L' + PAD_L + ',' + (PAD_T + ch) + 'Z';
+
+  var gridLines = '';
+  var yLabels = '';
+  var steps = 4;
+  for (var i = 0; i <= steps; i++) {
+    var val = minVal + (range / steps) * (steps - i);
+    var yy = PAD_T + (ch / steps) * i;
+    gridLines += '<line x1="' + PAD_L + '" y1="' + yy.toFixed(1) + '" x2="' + (W - PAD_R) + '" y2="' + yy.toFixed(1) + '" stroke="#21262d" stroke-width="1"/>';
+    yLabels += '<text x="' + (PAD_L - 6) + '" y="' + (yy + 3).toFixed(1) + '" fill="#484f58" font-size="10" text-anchor="end">' + Math.round(val) + '</text>';
+  }
+
+  var xLabels = '';
+  var labelCount = Math.min(6, data.length);
+  for (var j = 0; j < labelCount; j++) {
+    var idx = Math.floor(j * (data.length - 1) / Math.max(labelCount - 1, 1));
+    xLabels += '<text x="' + x(idx).toFixed(1) + '" y="' + (H - 4) + '" fill="#484f58" font-size="10" text-anchor="middle">' + data[idx].label + '</text>';
+  }
+
+  var peakDot = '<circle cx="' + x(peakIdx).toFixed(1) + '" cy="' + y(maxVal).toFixed(1) + '" r="4" fill="' + color + '"/>';
+
+  var svg = '<div class="chart-container"><svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">'
+    + gridLines + yLabels + xLabels
+    + '<path d="' + areaD + '" fill="' + color + '" fill-opacity="0.12"/>'
+    + '<path d="' + lineD + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linejoin="round"/>'
+    + peakDot
+    + '</svg></div>';
+
+  var first = data[0], last = data[data.length - 1], peak = data[peakIdx];
+  svg += '<div class="chart-info"><span>' + first.label + '</span><span class="chart-peak">Peak: ' + maxVal + ' at ' + peak.label + '</span><span>' + last.label + '</span></div>';
+  return svg;
+}
+
+// ── Vertical Bar Chart (for peaks comparison) ──
+function peakBars(data) {
+  if (!data || !data.length) return '<div class="empty">No data</div>';
+  var maxVal = Math.max.apply(null, data.map(function(d) { return d.value; }).concat([1]));
+  var maxH = 120;
+  var html = '<div class="bars">';
+  for (var i = 0; i < data.length; i++) {
+    var d = data[i];
+    var h = Math.max(Math.round((d.value / maxVal) * maxH), 4);
+    html += '<div class="bar-item"><div class="bar-value">' + d.value + '</div><div class="bar-fill" style="height:' + h + 'px"></div><div class="bar-label">' + d.label + '</div></div>';
+  }
+  html += '</div>';
+  return html;
 }
 
 // ── Status + Stats Cards ──
@@ -246,7 +309,7 @@ async function loadStatus() {
 async function loadStatsRow() {
   var overview = await api('/overview');
   var el = document.getElementById('stats-row');
-  if (!overview || !overview.length) { el.innerHTML = '<div class="empty">No data yet</div>'; return; }
+  if (!overview || !overview.length) { el.innerHTML = ''; return; }
 
   var total = 0;
   var html = '';
@@ -268,7 +331,7 @@ async function loadOverview() {
 
   var html = '<h2>Peaks Today</h2><div class="card">';
   if (peaks && peaks.length) {
-    html += barChart(peaks.map(function(p) { return { label: p.game, value: parseInt(p.peak) || 0 }; }));
+    html += peakBars(peaks.map(function(p) { return { label: p.game, value: parseInt(p.peak) || 0 }; }));
   } else {
     html += '<div class="empty">No data yet today</div>';
   }
@@ -288,15 +351,18 @@ async function loadOverview() {
 
 // ── Per-Game View ──
 async function loadGame(game) {
-  var snaps = await api('/snapshots?game=' + game + '&limit=100');
+  var snaps = await api('/snapshots?game=' + game + '&limit=200');
   if (!snaps) snaps = [];
 
-  var html = '<h2>' + game.toUpperCase() + ' — Player History</h2>';
+  var html = '<h2>' + game.toUpperCase() + ' — Player History (24h)</h2>';
 
   if (snaps.length > 0) {
-    var reversed = snaps.slice().reverse().slice(-60);
+    var reversed = snaps.slice().reverse();
     var chartData = reversed.map(function(s) { return { label: fmtTime(s.recorded_at), value: s.total_players }; });
-    html += '<div class="card">' + barChart(chartData) + '</div>';
+    var colors = { ragemp: '#3fb950', redm: '#f47067', samp: '#58a6ff' };
+    html += '<div class="card">' + areaChart(chartData, 200, colors[game] || '#3fb950') + '</div>';
+  } else {
+    html += '<div class="card empty">No snapshots recorded yet</div>';
   }
 
   html += '<h2>Snapshots</h2><div class="card scroll-table"><table>';
@@ -319,12 +385,12 @@ async function loadSnapshot(id) {
   html += '<div class="meta">' + badge(data.game) + ' — ' + fmtDate(data.recorded_at) + ' — Total: <strong>' + data.total_players + '</strong> players</div>';
 
   html += '<div class="card scroll-table"><table>';
-  html += '<tr><th>#</th><th>Server ID</th><th>Name</th><th class="num">Players</th><th class="num">API Peak</th><th></th></tr>';
+  html += '<tr><th>#</th><th>Server</th><th class="num">Players</th><th class="num">API Peak</th><th></th></tr>';
   var servers = data.servers || [];
   for (var i = 0; i < servers.length; i++) {
     var s = servers[i];
     var sid = esc(s.server_id);
-    html += '<tr><td>' + (i+1) + '</td><td style="font-size:11px;color:#8b949e">' + sid + '</td><td>' + esc(s.name) + '</td><td class="num"><strong>' + s.players + '</strong></td><td class="num">' + (s.api_peak != null ? s.api_peak : '—') + '</td>';
+    html += '<tr><td>' + (i+1) + '</td><td><strong>' + esc(s.name) + '</strong><br><span style="font-size:11px;color:#484f58">' + sid + '</span></td><td class="num"><strong>' + s.players + '</strong></td><td class="num">' + (s.api_peak != null ? s.api_peak : '—') + '</td>';
     html += '<td><a class="clickable" data-game="' + data.game + '" data-sid="' + sid + '" onclick="loadServerStats(this.dataset.game, this.dataset.sid)">History</a></td></tr>';
   }
   html += '</table></div>';
@@ -338,11 +404,11 @@ async function loadServers() {
 
   var html = '<h2>All Known Servers (' + servers.length + ')</h2>';
   html += '<div class="card scroll-table"><table>';
-  html += '<tr><th>Game</th><th>Server ID</th><th>Name</th><th class="num">Players</th><th>Last Seen</th><th></th></tr>';
+  html += '<tr><th>Game</th><th>Server</th><th class="num">Players</th><th>Last Seen</th><th></th></tr>';
   for (var i = 0; i < servers.length; i++) {
     var s = servers[i];
     var sid = esc(s.server_id);
-    html += '<tr><td>' + badge(s.game) + '</td><td style="font-size:11px;color:#8b949e">' + sid + '</td><td>' + esc(s.name) + '</td><td class="num"><strong>' + s.players + '</strong></td><td>' + timeAgo(s.last_seen) + '</td>';
+    html += '<tr><td>' + badge(s.game) + '</td><td><strong>' + esc(s.name) + '</strong><br><span style="font-size:11px;color:#484f58">' + sid + '</span></td><td class="num"><strong>' + s.players + '</strong></td><td>' + timeAgo(s.last_seen) + '</td>';
     html += '<td><a class="clickable" data-game="' + s.game + '" data-sid="' + sid + '" onclick="loadServerStats(this.dataset.game, this.dataset.sid)">Stats</a></td></tr>';
   }
   html += '</table></div>';
@@ -368,9 +434,10 @@ async function loadServerStats(game, serverId) {
   }
 
   if (data.history && data.history.length > 0) {
+    var colors = { ragemp: '#3fb950', redm: '#f47067', samp: '#58a6ff' };
     html += '<h2>Player History (24h)</h2><div class="card">';
     var chartData = data.history.map(function(h) { return { label: fmtTime(h.recorded_at), value: h.players }; });
-    html += barChart(chartData);
+    html += areaChart(chartData, 200, colors[game] || '#3fb950');
     html += '</div>';
 
     html += '<h2>Raw Data</h2><div class="card scroll-table"><table>';
