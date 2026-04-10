@@ -133,7 +133,7 @@ async function buildEmbed() {
   });
 
   const ts = Math.floor(Date.now() / 1000);
-  embed.setDescription(`👥 **${totalPlayers} მოთამაშე ონლაინ** ${online} სერვერზე\n\n${lines.join('\n')}\n\n-# განახლდა <t:${ts}:R>`);
+  embed.setDescription(`👥 **${totalPlayers} მოთამაშე ონლაინ** ${online} სერვერზე\n\n${lines.join('\n')}\n\n-# განახლდა <t:${ts}:R> • დღე იწყება 06:00-ზე`);
 
   const sparkline = generateSparkline(getTotalHistory('redm'));
   const peak = getPeak24h('redm');
@@ -142,9 +142,9 @@ async function buildEmbed() {
   if (sparkline || peak || todayPeak) {
     const parts = [];
     if (sparkline) parts.push(`\`${sparkline}\``);
-    if (peak) parts.push(`პიკი: **${peak.p}** <t:${peak.t}:t>`);
     if (todayPeak) parts.push(`დღის პიკი: **${todayPeak.p}** <t:${todayPeak.t}:t>`);
-    embed.addFields([{ name: '📊 24h', value: parts.join('  '), inline: false }]);
+    if (peak && (!todayPeak || peak.p !== todayPeak.p)) parts.push(`24h პიკი: **${peak.p}** <t:${peak.t}:t>`);
+    embed.addFields([{ name: '📊 სტატისტიკა', value: parts.join('  '), inline: false }]);
   }
 
   return embed;

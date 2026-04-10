@@ -2,6 +2,24 @@ const { Pool } = require('pg');
 
 let pool = null;
 
+// Day boundary: 06:00 Georgian time (UTC+4), i.e. 02:00 UTC
+function getGeorgianDayCutoff() {
+  const GEORGIAN_OFFSET = 4 * 3600 * 1000;
+  const DAY_START_HOUR = 6;
+  const now = Date.now();
+  const georgianNow = new Date(now + GEORGIAN_OFFSET);
+  if (georgianNow.getUTCHours() < DAY_START_HOUR) {
+    georgianNow.setUTCDate(georgianNow.getUTCDate() - 1);
+  }
+  const dayStartUTC = Date.UTC(
+    georgianNow.getUTCFullYear(),
+    georgianNow.getUTCMonth(),
+    georgianNow.getUTCDate(),
+    DAY_START_HOUR
+  );
+  return new Date(dayStartUTC - GEORGIAN_OFFSET);
+}
+
 async function init() {
   if (!process.env.DATABASE_URL) {
     console.warn('[db] DATABASE_URL not set — running without database');
@@ -94,14 +112,15 @@ async function getPeakToday(game) {
   if (!pool) return null;
 
   try {
+    const cutoff = getGeorgianDayCutoff();
     const { rows } = await pool.query(
       `SELECT total_players, recorded_at
        FROM snapshots
        WHERE game = $1
-         AND recorded_at >= (NOW() AT TIME ZONE 'Asia/Tbilisi')::date AT TIME ZONE 'Asia/Tbilisi'
+         AND recorded_at >= $2
        ORDER BY total_players DESC
        LIMIT 1`,
-      [game]
+      [game, cutoff]
     );
 
     if (rows.length === 0) return null;
@@ -135,6 +154,7 @@ async function cleanup(daysToKeep = 90) {
 async function getCombinedPeakToday() {
   if (!pool) return null;
   try {
+    const cutoff = getGeorgianDayCutoff();
     const { rows } = await pool.query(`
       WITH minutely AS (
         SELECT
@@ -142,11 +162,11 @@ async function getCombinedPeakToday() {
           SUM(total_players) AS total
         FROM snapshots
         WHERE game IN ('ragemp', 'redm', 'samp')
-          AND recorded_at >= (NOW() AT TIME ZONE 'Asia/Tbilisi')::date AT TIME ZONE 'Asia/Tbilisi'
+          AND recorded_at >= $1
         GROUP BY min
       )
       SELECT MAX(total) AS peak FROM minutely
-    `);
+    `, [cutoff]);
     if (rows.length === 0 || rows[0].peak === null) return null;
     return { p: Number(rows[0].peak) };
   } catch (err) {
@@ -162,24 +182,29 @@ async function getCombinedPeakToday() {
 async function getDailyPeaks(days = 7) {
   if (!pool) return [];
   try {
+    // Each "day" runs 06:00 to 06:00 Georgian time
+    // We shift recorded_at by -6 hours so that date_trunc('day') aligns with 06:00 boundaries
+    const cutoff = getGeorgianDayCutoff();
+    const startFrom = new Date(cutoff.getTime() - days * 86400000);
     const { rows } = await pool.query(`
-      WITH minutely AS (
+      WITH shifted AS (
         SELECT
           date_trunc('minute', recorded_at) AS min,
+          (recorded_at AT TIME ZONE 'Asia/Tbilisi' - INTERVAL '6 hours')::date AS geo_day,
           SUM(total_players) AS total
         FROM snapshots
         WHERE game IN ('ragemp', 'redm', 'samp')
-          AND recorded_at >= ((NOW() AT TIME ZONE 'Asia/Tbilisi')::date - $1 * INTERVAL '1 day') AT TIME ZONE 'Asia/Tbilisi'
-          AND recorded_at < (NOW() AT TIME ZONE 'Asia/Tbilisi')::date AT TIME ZONE 'Asia/Tbilisi'
-        GROUP BY min
+          AND recorded_at >= $1
+          AND recorded_at < $2
+        GROUP BY min, geo_day
       )
       SELECT
-        (min AT TIME ZONE 'Asia/Tbilisi')::date AS day,
+        geo_day AS day,
         MAX(total) AS peak
-      FROM minutely
-      GROUP BY day
-      ORDER BY day DESC
-    `, [days]);
+      FROM shifted
+      GROUP BY geo_day
+      ORDER BY geo_day DESC
+    `, [startFrom, cutoff]);
     return rows.map(r => ({ date: r.day, peak: Number(r.peak) }));
   } catch (err) {
     console.error('[db] getDailyPeaks error:', err.message);
@@ -194,14 +219,15 @@ async function getDailyPeaks(days = 7) {
 async function getServerPeaksToday(game) {
   if (!pool) return new Map();
   try {
+    const cutoff = getGeorgianDayCutoff();
     const { rows } = await pool.query(
       `SELECT sr.server_id, MAX(sr.players) AS peak
        FROM server_records sr
        JOIN snapshots s ON sr.snapshot_id = s.id
        WHERE s.game = $1
-         AND s.recorded_at >= (NOW() AT TIME ZONE 'Asia/Tbilisi')::date AT TIME ZONE 'Asia/Tbilisi'
+         AND s.recorded_at >= $2
        GROUP BY sr.server_id`,
-      [game]
+      [game, cutoff]
     );
     const map = new Map();
     for (const r of rows) map.set(r.server_id, Number(r.peak));

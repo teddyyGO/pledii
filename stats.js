@@ -6,6 +6,8 @@ const STATS_PATH = path.join(__dirname, 'stats.json');
 const MAX_AGE_SECONDS = 7 * 86400;      // keep 7 days
 const RECORD_INTERVAL = 60 * 1000;      // record every minute
 const BLOCKS = '▁▂▃▄▅▆▇█';
+const GEORGIAN_OFFSET = 4 * 3600 * 1000;
+const DAY_START_HOUR = 6; // Day resets at 06:00 Georgian time
 
 const lastRecorded = { ragemp: 0, redm: 0, samp: 0, total: 0 };
 
@@ -187,18 +189,29 @@ function getPeak24h(game) {
   return history.reduce((max, e) => (e.p > max.p ? e : max), history[0]);
 }
 
-/** Peak for today (since midnight Georgian time UTC+4). */
-function getPeakToday(game) {
+/**
+ * Returns the UTC timestamp (seconds) of the current Georgian "day" start (06:00 Georgian time).
+ * If it's before 06:00 Georgian, the day started at 06:00 yesterday.
+ */
+function getGeorgianDayStart() {
   const now = Date.now();
-  const GEORGIAN_OFFSET = 4 * 3600 * 1000;
   const georgianNow = new Date(now + GEORGIAN_OFFSET);
-  const midnightGeorgian = Date.UTC(
+  const georgianHour = georgianNow.getUTCHours();
+  if (georgianHour < DAY_START_HOUR) {
+    georgianNow.setUTCDate(georgianNow.getUTCDate() - 1);
+  }
+  const dayStartGeorgian = Date.UTC(
     georgianNow.getUTCFullYear(),
     georgianNow.getUTCMonth(),
-    georgianNow.getUTCDate()
+    georgianNow.getUTCDate(),
+    DAY_START_HOUR
   );
-  const cutoff = Math.floor((midnightGeorgian - GEORGIAN_OFFSET) / 1000);
+  return Math.floor((dayStartGeorgian - GEORGIAN_OFFSET) / 1000);
+}
 
+/** Peak for today (since 06:00 Georgian time UTC+4). */
+function getPeakToday(game) {
+  const cutoff = getGeorgianDayStart();
   const snaps = loadStats().snapshots.filter(s => s.game === game && s.timestamp >= cutoff);
   if (snaps.length === 0) return null;
 
@@ -206,18 +219,9 @@ function getPeakToday(game) {
   return history.reduce((max, e) => (e.p > max.p ? e : max), history[0]);
 }
 
-/** Peak of all servers for a game today, keyed by server_id. */
+/** Peak of all servers for a game today (since 06:00 Georgian), keyed by server_id. */
 function getAllServerPeaksToday(game) {
-  const now = Date.now();
-  const GEORGIAN_OFFSET = 4 * 3600 * 1000;
-  const georgianNow = new Date(now + GEORGIAN_OFFSET);
-  const midnightGeorgian = Date.UTC(
-    georgianNow.getUTCFullYear(),
-    georgianNow.getUTCMonth(),
-    georgianNow.getUTCDate()
-  );
-  const cutoff = Math.floor((midnightGeorgian - GEORGIAN_OFFSET) / 1000);
-
+  const cutoff = getGeorgianDayStart();
   const snaps = loadStats().snapshots.filter(s => s.game === game && s.timestamp >= cutoff);
   const peaks = new Map();
   for (const snap of snaps) {
@@ -241,15 +245,22 @@ function getPeak7d(game) {
  * Returns array of { daysAgo, peak } ordered most recent first.
  */
 function getDailyPeaksLocal(days = 7) {
-  const GEORGIAN_OFFSET = 4 * 3600 * 1000;
   const now = Date.now();
   const allSnaps = loadStats().snapshots;
   const results = [];
 
+  // Each "day" runs from 06:00 to 06:00 Georgian time
+  const georgianNow = new Date(now + GEORGIAN_OFFSET);
+  const currentHour = georgianNow.getUTCHours();
+  // If before 06:00, current day started yesterday at 06:00
+  if (currentHour < DAY_START_HOUR) {
+    georgianNow.setUTCDate(georgianNow.getUTCDate() - 1);
+  }
+
   for (let d = 1; d <= days; d++) {
-    const gNow = new Date(now + GEORGIAN_OFFSET);
-    gNow.setUTCDate(gNow.getUTCDate() - d);
-    const dayStartUTC = Date.UTC(gNow.getUTCFullYear(), gNow.getUTCMonth(), gNow.getUTCDate());
+    const gDay = new Date(georgianNow);
+    gDay.setUTCDate(gDay.getUTCDate() - d);
+    const dayStartUTC = Date.UTC(gDay.getUTCFullYear(), gDay.getUTCMonth(), gDay.getUTCDate(), DAY_START_HOUR);
     const startTs = Math.floor((dayStartUTC - GEORGIAN_OFFSET) / 1000);
     const endTs = startTs + 86400;
 
@@ -320,5 +331,6 @@ module.exports = {
   recordCombinedSnapshot,
   stripLeadingEmoji,
   getDailyPeaksLocal,
-  getDailySummary
+  getDailySummary,
+  getGeorgianDayStart
 };

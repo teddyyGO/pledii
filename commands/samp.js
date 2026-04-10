@@ -105,7 +105,7 @@ async function buildEmbed() {
   const serverPeak = serverPeaks.get(`${SERVER_HOST}:${SERVER_PORT}`) || 0;
   const peakStr = serverPeak > 0 ? ` (პიკი: ${serverPeak})` : '';
 
-  embed.setDescription(`👥 **${data.players} მოთამაშე ონლაინ**\n\n\` 1\` ${dot} **${data.hostname}** — ${data.players}/${data.maxplayers}${peakStr}\n\n-# განახლდა <t:${ts}:R>`);
+  embed.setDescription(`👥 **${data.players} მოთამაშე ონლაინ**\n\n\` 1\` ${dot} **${data.hostname}** — ${data.players}/${data.maxplayers}${peakStr}\n\n-# განახლდა <t:${ts}:R> • დღე იწყება 06:00-ზე`);
 
   const sparkline = generateSparkline(getTotalHistory('samp'));
   const peak = getPeak24h('samp');
@@ -114,9 +114,9 @@ async function buildEmbed() {
   if (sparkline || peak || todayPeak) {
     const parts = [];
     if (sparkline) parts.push(`\`${sparkline}\``);
-    if (peak) parts.push(`პიკი: **${peak.p}** <t:${peak.t}:t>`);
     if (todayPeak) parts.push(`დღის პიკი: **${todayPeak.p}** <t:${todayPeak.t}:t>`);
-    embed.addFields([{ name: '📊 24h', value: parts.join('  '), inline: false }]);
+    if (peak && (!todayPeak || peak.p !== todayPeak.p)) parts.push(`24h პიკი: **${peak.p}** <t:${peak.t}:t>`);
+    embed.addFields([{ name: '📊 სტატისტიკა', value: parts.join('  '), inline: false }]);
   }
 
   return embed;
