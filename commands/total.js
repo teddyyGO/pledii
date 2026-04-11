@@ -35,11 +35,9 @@ async function buildEmbed() {
       .slice(0, 3)
       .filter(s => s.players > 0)
       .map(s => {
-        const srvPeak = serverPeaks.get(s.server_id) || 0;
         const shortName = (s.name || s.server_id).replace(/\[.*?\]/g, '').replace(/\s{2,}/g, ' ').trim();
         const display = shortName.length > 22 ? shortName.slice(0, 21) + '…' : shortName;
-        const peakStr = srvPeak > 0 ? ` ⌃${srvPeak}` : '';
-        return `\` ${s.players}\` ${display}${peakStr}`;
+        return `\` ${s.players}\` ${display}`;
       }) : [];
 
     rows.push({ label, emoji, players, serverCount, dot, peak, topServers });

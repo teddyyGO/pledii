@@ -8,8 +8,10 @@ const {
   getGameSummary,
   getServerSummary,
   getKnownServers,
+  getLatestSnapshot,
   generateSparkline,
-  getTotalHistory
+  getTotalHistory,
+  stripLeadingEmoji
 } = require('../stats');
 
 const GAME_LABELS = { ragemp: '🎮 RageMP', redm: '🐴 RedM' };
@@ -41,6 +43,22 @@ function buildOverviewField(game, hours) {
     trendArrow(s.trend),
   ];
   if (sparkline7d && hours < 168) lines.push(`7d: ${sparkline7d}`);
+
+  // List all online servers (1+ players)
+  const snap = getLatestSnapshot(game);
+  if (snap) {
+    const onlineServers = [...snap.servers]
+      .filter(srv => srv.players > 0)
+      .sort((a, b) => b.players - a.players);
+    if (onlineServers.length > 0) {
+      lines.push('');
+      for (const srv of onlineServers) {
+        const name = stripLeadingEmoji((srv.name || srv.server_id).replace(/\[.*?\]/g, '').replace(/\s{2,}/g, ' ').trim());
+        const display = name.length > 24 ? name.slice(0, 23) + '…' : name;
+        lines.push(`\` ${String(srv.players).padStart(3)}\` ${display}`);
+      }
+    }
+  }
 
   return { name: label, value: lines.filter(Boolean).join('\n'), inline: true };
 }
